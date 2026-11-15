@@ -228,10 +228,10 @@ async function processVideo(v, idx) {
   fs.copyFileSync(FONT, path.join(dir, 'fonts', 'Poppins-Bold.ttf'));
 
   // metadata (title/channel) for queue items
-  if (!v.title) {
+  if (!v.title || !v.channel) {
     const r = await ytdlp(['--skip-download', '--print', '%(channel,uploader)s\t%(title)s\t%(duration)s', v.url], { quiet: true });
     const [ch, title, dur] = (r.out.trim().split(/\r?\n/).pop() || '').split('\t');
-    Object.assign(v, { channel: ch || '', title: title || v.id, duration: Number(dur) || 0 });
+    Object.assign(v, { channel: ch || v.channel || '', title: title || v.title || v.id, duration: Number(dur) || v.duration || 0 });
   }
   log(`\n=== [${idx}] ${v.title} — ${v.channel} (${fmtTime(v.duration || 0)}) ===`);
 
@@ -293,15 +293,25 @@ async function processVideo(v, idx) {
     try {
       // 4. download only this section, cut exactly at the timestamps
       const secTpl = path.join(dir, `sec_${n}.%(ext)s`);
-      r = await ytdlp([
-        '-f', fmt,
-        '--download-sections', `*${c.start.toFixed(2)}-${c.end.toFixed(2)}`,
-        '--force-keyframes-at-cuts',
-        '--merge-output-format', 'mp4',
-        '-o', secTpl,
-        v.url,
-      ]);
-      const sec = fs.readdirSync(dir).find((f) => f.startsWith(`sec_${n}.`) && !f.endsWith('.part'));
+      const findSec = () => fs.readdirSync(dir).find((f) => f.startsWith(`sec_${n}.`) && !/\.(part|ytdl)$/.test(f) && !/\.f\d+\./.test(f));
+      let sec;
+      // YouTube sometimes answers 403 on a section request; a fresh attempt usually works
+      for (let attempt = 1; attempt <= 3 && !sec; attempt++) {
+        for (const f of fs.readdirSync(dir)) if (f.startsWith(`sec_${n}.`)) fs.rmSync(path.join(dir, f), { force: true });
+        r = await ytdlp([
+          '-f', fmt,
+          '--download-sections', `*${c.start.toFixed(2)}-${c.end.toFixed(2)}`,
+          '--force-keyframes-at-cuts',
+          '--merge-output-format', 'mp4',
+          '-o', secTpl,
+          v.url,
+        ]);
+        if (r.code === 0) sec = findSec();
+        if (!sec && attempt < 3) {
+          log(`    ! download potongan gagal (percobaan ${attempt}/3), coba lagi…`);
+          await new Promise((res) => setTimeout(res, 10000 * attempt));
+        }
+      }
       if (!sec) throw new Error(`download potongan gagal: ${r.err.slice(-300)}`);
       const info = await probe(path.join(dir, sec));
       const dur = Math.min(c.end - c.start, info.duration || c.end - c.start);
