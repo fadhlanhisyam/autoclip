@@ -123,6 +123,8 @@ export default function ClipperApp() {
       const chunks = await extractAudioChunks(file, meta.duration, CHUNK_SEC, setProgress);
 
       // 2. transcript (2 chunks at a time)
+      // video title (without extension / [youtube-id]) as a spelling hint for names
+      const videoHint = file.name.replace(/\.[^.]+$/, '').replace(/\[[^\]]*\]/g, '').replace(/[_-]+/g, ' ').trim();
       let done = 0;
       setStatus(`Membuat transkrip (0/${chunks.length})…`);
       setProgress(0);
@@ -134,6 +136,7 @@ export default function ClipperApp() {
           const fd = new FormData();
           fd.append('file', chunks[i].blob, `chunk_${i}.mp3`);
           fd.append('language', language);
+          fd.append('prompt', videoHint);
           results[i] = await api('/api/transcribe', { method: 'POST', body: fd });
           done++;
           setStatus(`Membuat transkrip (${done}/${chunks.length})…`);
