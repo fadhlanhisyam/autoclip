@@ -40,6 +40,7 @@ export default function ClipperApp() {
 
   const playerRef = useRef(null);
   const stopAtRef = useRef(null);
+  const transcriptKeyRef = useRef(null);
   const clipsRef = useRef(clips);
   clipsRef.current = clips;
 
@@ -97,6 +98,18 @@ export default function ClipperApp() {
     setStage('working');
     setClips([]);
     try {
+      // 0. check the password first, so a long job never fails halfway
+      setStatus('Mengecek password…');
+      await api('/api/auth', { method: 'POST' });
+
+      const tKey = `${file.name}|${file.size}|${language}`;
+      let segments = [];
+      let words = [];
+      if (transcript && transcriptKeyRef.current === tKey) {
+        // same video + language: reuse the transcript, only re-pick the moments
+        segments = transcript.segments;
+        words = transcript.words;
+      } else {
       const { getFFmpeg, extractAudioChunks, setPreferMultiThread, isMultiThread } = await import('@/lib/ffmpeg');
 
       setStatus('Memuat mesin video (±30 MB, hanya sekali)…');
@@ -110,8 +123,6 @@ export default function ClipperApp() {
       const chunks = await extractAudioChunks(file, meta.duration, CHUNK_SEC, setProgress);
 
       // 2. transcript (2 chunks at a time)
-      let segments = [];
-      let words = [];
       let done = 0;
       setStatus(`Membuat transkrip (0/${chunks.length})…`);
       setProgress(0);
@@ -137,6 +148,8 @@ export default function ClipperApp() {
       });
       if (!segments.length) throw new Error('Tidak ada suara/ucapan yang terdeteksi di video ini.');
       setTranscript({ segments, words });
+      transcriptKeyRef.current = tKey;
+      }
 
       // 3. pick highlights
       setStatus('AI sedang memilih momen terbaik…');
