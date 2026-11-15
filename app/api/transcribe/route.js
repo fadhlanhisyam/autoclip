@@ -17,11 +17,15 @@ export async function POST(req) {
   const form = await req.formData();
   const file = form.get('file');
   const language = form.get('language');
+  const hint = String(form.get('prompt') || '').slice(0, 400);
   if (!file) return Response.json({ error: 'File audio tidak ada' }, { status: 400 });
 
   const out = new FormData();
   out.append('file', file, 'chunk.mp3');
-  out.append('model', process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo');
+  // large-v3 is more accurate than turbo for Indonesian and multi-speaker talk
+  out.append('model', process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3');
+  // names/terms from the video title help Whisper spell them correctly
+  if (hint) out.append('prompt', hint);
   out.append('response_format', 'verbose_json');
   out.append('timestamp_granularities[]', 'word');
   out.append('timestamp_granularities[]', 'segment');
