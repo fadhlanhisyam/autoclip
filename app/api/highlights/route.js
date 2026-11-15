@@ -4,35 +4,75 @@ import { buildPrompt, parseClips } from '@/lib/highlights';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-// Free option (default): Google Gemini API free tier — large context, handles long transcripts.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const RETRY = new Set([429, 500, 502, 503, 504]);
+
+// Free option (default): Google Gemini API free tier. Tries several models and
+// retries when Google is overloaded (503) or rate-limited (429).
 async function askGemini(prompt) {
-  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-goog-api-key': process.env.GEMINI_API_KEY,
-    },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4, responseMimeType: 'application/json' },
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${(await res.text()).slice(0, 400)}`);
-  const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+  const models = [
+    process.env.GEMINI_MODEL,
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+  ].filter((m, i, a) => m && a.indexOf(m) === i);
+
+  let lastErr = '';
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, responseMimeType: 'application/json' },
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+        if (text) return text;
+        lastErr = `${model}: respons kosong`;
+        break;
+      }
+      lastErr = `${model} ${res.status}: ${(await res.text()).slice(0, 200)}`;
+      if (res.status === 404) break; // model not available, try next one
+      if (!RETRY.has(res.status)) throw new Error(`Gemini error ${lastErr}`);
+      await sleep(3000 * (attempt + 1));
+    }
+  }
+  throw new Error(`Gemini sedang sibuk/tidak tersedia. ${lastErr}`);
 }
 
-// Free fallback: Groq LLM (free tier has a small tokens-per-minute limit, fine for videos up to ~30-40 min).
+// Free fallback: Groq LLM. Picks a currently available model automatically,
+// because Groq retires models often.
+async function pickGroqModel() {
+  if (process.env.GROQ_LLM_MODEL) return process.env.GROQ_LLM_MODEL;
+  const res = await fetch('https://api.groq.com/openai/v1/models', {
+    headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+  });
+  if (!res.ok) throw new Error(`Groq models error ${res.status}`);
+  const ids = ((await res.json()).data || [])
+    .filter((m) => m.active !== false)
+    .map((m) => m.id)
+    .filter((id) => !/whisper|guard|tts|playai|orpheus|distil|compound/i.test(id));
+  const prefer = ['gpt-oss-120b', 'llama-4-maverick', 'kimi-k2', 'qwen3', 'llama-4-scout', 'gpt-oss-20b', 'llama'];
+  for (const p of prefer) {
+    const hit = ids.find((id) => id.includes(p));
+    if (hit) return hit;
+  }
+  if (!ids.length) throw new Error('Tidak ada model Groq yang tersedia');
+  return ids[0];
+}
+
 async function askGroq(prompt) {
+  const model = await pickGroqModel();
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-    },
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
     body: JSON.stringify({
-      model: process.env.GROQ_LLM_MODEL || 'llama-3.3-70b-versatile',
+      model,
       temperature: 0.4,
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
@@ -41,9 +81,9 @@ async function askGroq(prompt) {
   if (!res.ok) {
     const t = await res.text();
     if (res.status === 413 || res.status === 429) {
-      throw new Error('Transkrip terlalu panjang untuk batas gratis Groq. Isi GEMINI_API_KEY (gratis) supaya video panjang bisa diproses.');
+      throw new Error(`Transkrip terlalu panjang untuk batas gratis Groq (${model}).`);
     }
-    throw new Error(`Groq LLM error ${res.status}: ${t.slice(0, 400)}`);
+    throw new Error(`Groq LLM error ${res.status} (${model}): ${t.slice(0, 300)}`);
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '';
@@ -103,5 +143,5 @@ export async function POST(req) {
       errors.push(`${name}: ${err.message || err}`);
     }
   }
-  return Response.json({ error: errors.join('\n') }, { status: 502 });
+  return Response.json({ error: errors.join('\n\n') }, { status: 502 });
 }
