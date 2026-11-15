@@ -16,8 +16,10 @@ PASANG (sekali saja)
 
 FILE YANG BISA ANDA UBAH
 - niche.txt     : niche produk affiliate Anda. Worker mencari podcast yang
-                  membahas niche ini LEBIH DULU (podcast sampai 60 hari terakhir),
-                  lalu memotong momen yang cocok untuk promosi produk.
+                  membahas niche ini (judul yang memuat kata niche didahulukan,
+                  podcast sampai 1 tahun terakhir). Kalau isi videonya ternyata
+                  tidak membahas niche, video dilewati dan dicoba podcast lain.
+                  Selama niche diisi, worker TIDAK mengambil podcast acak.
 - antrian.txt   : tempel link YouTube yang ingin dipotong lebih dulu
 - channels.txt  : daftar sumber video otomatis
 - config.json   : pengaturan (jangan bagikan file ini, berisi password)

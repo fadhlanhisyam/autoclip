@@ -34,8 +34,10 @@ const DEFAULTS = {
   minVideoMinutes: 8,
   maxVideoMinutes: 150,
   maxAgeDays: 3,
-  nicheMaxAgeDays: 60,
-  nicheMinViews: 5000,
+  nicheMaxAgeDays: 365,
+  nicheMinViews: 1000,
+  nicheTries: 3,
+  nicheFallback: false,
   minViews: 20000,
   layout: 'blur',
   quality: '1080',
@@ -201,19 +203,39 @@ async function nicheCandidates(processed) {
   const minDate = new Date(Date.now() - cfg.nicheMaxAgeDays * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
   for (const n of readNiches()) {
     log('Mencari podcast untuk niche:', n.name, `("${n.query}")`);
-    // newest uploads first, then relevance, so niche videos stay fresh but on-topic
-    for (const prefix of ['ytsearchdate15', 'ytsearch10']) {
+    const keys = `${n.name} ${n.query}`.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && w !== 'podcast');
+    for (const prefix of ['ytsearch20', 'ytsearchdate20']) {
       const r = await ytdlp(['--flat-playlist', '--print', PRINT, `${prefix}:${n.query}`], { quiet: true });
       for (const v of parseListing(r.out)) {
         if (processed.has(v.id) || out.some((c) => c.id === v.id)) continue;
         if (v.duration && (v.duration < cfg.minVideoMinutes * 60 || v.duration > cfg.maxVideoMinutes * 60)) continue;
         if (v.views && v.views < cfg.nicheMinViews) continue;
-        out.push({ ...v, niche: n.name, minDate });
+        const title = v.title.toLowerCase();
+        const match = keys.filter((k) => title.includes(k)).length;
+        out.push({ ...v, niche: n.name, minDate, match });
       }
     }
+    log(`  ${out.filter((c) => c.niche === n.name).length} kandidat untuk "${n.name}".`);
   }
-  return out;
+  // titles that mention the niche first, then most watched
+  return out.sort((a, b) => b.match - a.match || b.views - a.views);
 }
+
+// next niche video that is not too old (checks upload date lazily)
+async function takeNiche(pool, exclude, preferNiche) {
+  for (let i = 0; i < pool.length; i++) {
+    const v = pool[i];
+    if (exclude.has(v.id) || (preferNiche && v.niche !== preferNiche)) continue;
+    pool.splice(i, 1);
+    i--;
+    const d = await uploadDate(v.url);
+    if (d && d < v.minDate) continue;
+    return { ...v, uploadDate: d };
+  }
+  return null;
+}
+
+const nichePool = [];
 
 async function pickVideos(processed) {
   const picked = [];
@@ -226,21 +248,27 @@ async function pickVideos(processed) {
   }
   if (picked.length >= cfg.videosPerDay) return picked.slice(0, cfg.videosPerDay);
 
-  // 1) niche videos first (one per niche per day if possible), sorted by views
-  const niche = (await nicheCandidates(processed)).sort((a, b) => b.views - a.views);
-  const usedNiches = new Set();
-  for (const pass of [0, 1]) {
-    for (const v of niche) {
-      if (picked.length >= cfg.videosPerDay) break;
-      if (picked.some((p) => p.id === v.id)) continue;
-      if (pass === 0 && usedNiches.has(v.niche)) continue;
-      const d = await uploadDate(v.url);
-      if (d && d < v.minDate) continue;
-      picked.push({ ...v, uploadDate: d });
-      usedNiches.add(v.niche);
+  // 1) niche videos first (one per niche if possible)
+  const niches = readNiches();
+  if (niches.length) {
+    nichePool.push(...(await nicheCandidates(processed)));
+    const ids = new Set(picked.map((p) => p.id));
+    for (const pass of [0, 1]) {
+      for (const n of niches) {
+        if (picked.length >= cfg.videosPerDay) break;
+        if (pass === 0 && picked.some((p) => p.niche === n.name)) continue;
+        const v = await takeNiche(nichePool, ids, pass === 0 ? n.name : null);
+        if (v) {
+          picked.push(v);
+          ids.add(v.id);
+        }
+      }
+    }
+    if (picked.length >= cfg.videosPerDay || !cfg.nicheFallback) {
+      if (!picked.length) log(`Tidak ada podcast yang cocok untuk niche: ${niches.map((n) => n.name).join(', ')}. Coba kata kunci lain di niche.txt (format: niche | kata kunci).`);
+      return picked;
     }
   }
-  if (picked.length >= cfg.videosPerDay) return picked;
 
   // 2) then trending podcasts from channels.txt
   const cands = [];
@@ -320,12 +348,14 @@ async function processVideo(v, idx) {
       maxDur: cfg.maxDur,
       language: cfg.language === 'en' ? 'en' : 'id',
       notes: v.niche
-        ? `Klip ini untuk konten AFFILIATE niche "${v.niche}". Pilih HANYA momen yang membahas ${v.niche}: masalah yang dialami, tips, pengalaman memakai produk, rekomendasi, atau hal yang membuat penonton ingin membeli produk ${v.niche}. Hook harus kuat di 3 detik pertama. Lewati pembukaan, iklan lain, dan basa-basi.`
+        ? `Klip ini untuk konten AFFILIATE niche "${v.niche}". Pilih HANYA momen yang membahas ${v.niche}: masalah yang dialami, tips, pengalaman memakai produk, rekomendasi, atau hal yang membuat penonton ingin membeli produk ${v.niche}. Hook harus kuat di 3 detik pertama. Lewati pembukaan, iklan lain, dan basa-basi. Jika video ini sama sekali TIDAK membahas ${v.niche}, kembalikan {\"clips\":[]}.`
         : cfg.notes,
     }),
   });
   const clips = snapClips(h.clips || [], segments, { minDur: cfg.minDur, maxDur: cfg.maxDur, duration }).slice(0, cfg.clipsPerVideo);
-  if (!clips.length) throw new Error('AI tidak menemukan momen yang cocok.');
+  if (!clips.length) {
+    throw Object.assign(new Error(v.niche ? `video ini tidak membahas ${v.niche}` : 'AI tidak menemukan momen yang cocok.'), { notRelevant: !!v.niche });
+  }
   log(`  ${clips.length} momen dipilih (${h.provider || 'AI'}).`);
 
   const outDir = path.join(OUT_ROOT, today, safeName(`${v.channel ? v.channel + ' - ' : ''}${v.title}`, 90));
@@ -500,31 +530,52 @@ async function main() {
   scanManualIds(processed);
   const videos = await pickVideos(processed);
   if (!videos.length) {
-    summary.push('Tidak ada video baru yang cocok hari ini.');
+    const ns = readNiches().map((n) => n.name);
+    summary.push(ns.length && !cfg.nicheFallback
+      ? `Tidak ada podcast baru yang cocok untuk niche: ${ns.join(', ')}. Coba kata kunci lain (niche.txt, format: niche | kata kunci).`
+      : 'Tidak ada video baru yang cocok hari ini.');
     log(summary[0]);
     return;
   }
   log(`Video terpilih: ${videos.length}`);
 
   let i = 0;
-  for (const v of videos) {
-    i++;
-    try {
-      const { outDir, made } = await processVideo(v, i);
-      summary.push(`✓ ${made.length} klip dari "${v.title}" (${v.channel})${v.niche ? ' [niche: ' + v.niche + ']' : ''} → ${outDir}`);
-    } catch (e) {
-      summary.push(`✗ "${v.title || v.url}": ${e.message}`);
-      log('  ✗', e.message);
-      if (e.fatal) throw e;
-    } finally {
-      // never retry the same video tomorrow (avoid loops on broken videos)
-      fs.appendFileSync(PROCESSED, `${v.id}\t${today}\t${(v.title || '').slice(0, 80)}\n`);
+  const done = [];
+  for (let v of videos) {
+    let tries = 0;
+    while (v) {
+      i++;
+      done.push(v);
+      try {
+        const { outDir, made } = await processVideo(v, i);
+        summary.push(`✓ ${made.length} klip dari "${v.title}" (${v.channel})${v.niche ? ' [niche: ' + v.niche + ']' : ''} → ${outDir}`);
+        fs.appendFileSync(PROCESSED, `${v.id}\t${today}\t${(v.title || '').slice(0, 80)}\n`);
+        v = null;
+      } catch (e) {
+        log('  ✗', e.message);
+        fs.rmSync(path.join(WORK, v.id), { recursive: true, force: true });
+        if (e.fatal) throw e;
+        // never retry the same video tomorrow (avoid loops on broken videos)
+        fs.appendFileSync(PROCESSED, `${v.id}\t${today}\t${(v.title || '').slice(0, 80)}\n`);
+        if (e.notRelevant && ++tries < cfg.nicheTries) {
+          const next = await takeNiche(nichePool, new Set(done.map((d) => d.id)), v.niche);
+          if (next) {
+            log(`  → mencoba podcast ${v.niche} berikutnya: "${next.title}"`);
+            v = next;
+            continue;
+          }
+        }
+        summary.push(`✗ "${v.title || v.url}": ${e.message}`);
+        v = null;
+        continue;
+      }
     }
   }
+  const videosDone = done;
   // remove processed queue entries
-  const done = new Set(videos.map((v) => v.id));
+  const doneIds = new Set(videosDone.map((v) => v.id));
   const rest = (fs.existsSync(QUEUE) ? fs.readFileSync(QUEUE, 'utf8').split(/\r?\n/) : []).filter(
-    (l) => !done.has((/(?:v=|youtu\.be\/|shorts\/|live\/)([\w-]{11})/.exec(l) || [])[1]),
+    (l) => !doneIds.has((/(?:v=|youtu\.be\/|shorts\/|live\/)([\w-]{11})/.exec(l) || [])[1]),
   );
   if (fs.existsSync(QUEUE)) fs.writeFileSync(QUEUE, rest.join('\n'));
 }
