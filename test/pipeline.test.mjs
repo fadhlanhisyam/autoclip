@@ -42,7 +42,7 @@ console.log(clips);
 assert(clips.length === 2, 'overlapping clip removed');
 assert(clips[0].start <= 9.0 && clips[0].end >= 38.8, 'snapped to segment boundaries');
 assert(clips[1].end - clips[1].start >= 20, 'too-short clip extended to min duration');
-assert(buildPrompt({ segments, count: 3, minDur: 20, maxDur: 60, language: 'id' }).includes('[3.0-5.8] kalimat 1'), 'prompt has timestamps');
+assert(buildPrompt({ segments, count: 3, minDur: 20, maxDur: 60, language: 'id' }).includes('[0.0-14.8] kalimat 0 kalimat 1 kalimat 2 kalimat 3 kalimat 4'), 'prompt has timestamps');
 
 // 4. captions
 const words = [];
