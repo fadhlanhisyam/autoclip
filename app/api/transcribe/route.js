@@ -22,10 +22,11 @@ export async function POST(req) {
 
   const out = new FormData();
   out.append('file', file, 'chunk.mp3');
-  // large-v3 is more accurate than turbo for Indonesian and multi-speaker talk
-  out.append('model', process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3');
-  // names/terms from the video title help Whisper spell them correctly
-  if (hint) out.append('prompt', hint);
+  // turbo: tested better than large-v3 on multi-speaker podcasts (large-v3 skipped
+  // speech and hallucinated repeated lines). Prompt hints are opt-in only, because
+  // they can also make Whisper skip speech.
+  out.append('model', process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo');
+  if (hint && process.env.WHISPER_USE_PROMPT === '1') out.append('prompt', hint);
   out.append('response_format', 'verbose_json');
   out.append('timestamp_granularities[]', 'word');
   out.append('timestamp_granularities[]', 'segment');
