@@ -150,7 +150,9 @@ export async function POST(req) {
     minDur: Number(body.minDur) || 20,
     maxDur: Number(body.maxDur) || 60,
     language: body.language || 'id',
-    notes: String(body.notes || '').slice(0, 500),
+    notes: String(body.notes || '').slice(0, 800),
+    productMode: body.productMode === true,
+    niche: String(body.niche || '').slice(0, 100),
   });
 
   const providers = [];

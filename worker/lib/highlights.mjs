@@ -31,7 +31,7 @@ export function transcriptToText(segments, maxBlock = 15) {
   return lines.map((l) => `[${l.start.toFixed(1)}-${l.end.toFixed(1)}] ${l.text}`).join('\n');
 }
 
-export function buildPrompt({ segments, count, minDur, maxDur, language, notes }) {
+export function buildPrompt({ segments, count, minDur, maxDur, language, notes, productMode = false, niche = '' }) {
   const lang = language === 'en' ? 'English' : 'Bahasa Indonesia (casual, natural, the way Indonesian TikTok creators write)';
   const total = segments.length ? segments[segments.length - 1].end : 0;
   return `You are an expert short-form video editor ("clipper") who turns long videos into viral TikTok / Reels / YouTube Shorts clips.
@@ -47,7 +47,14 @@ What makes a great clip:
 - High value or high emotion: funny, controversial, a useful insight or tip, a strong story, a heated moment, a quotable line.
 - Each clip is between ${minDur} and ${maxDur} seconds long.
 - Clips must not overlap. Spread them across the video if quality allows, but quality comes first.
-${notes ? `\nExtra instructions from the user: ${notes}\n` : ''}
+${notes ? `\nExtra instructions from the user: ${notes}\n` : ''}${productMode ? `
+STRICT PRODUCT MODE (affiliate content${niche ? `, niche: ${niche}` : ''}):
+- ONLY pick moments where a speaker clearly says the NAME of a specific product (brand and/or product name, e.g. "Vaseline Proderma", "Skintific 5X Ceramide") AND explains what it does: its function, benefits, ingredients, how to use it, or who it is for.
+- General talk about a topic without a named product does NOT qualify. A brand name mentioned in passing without any explanation does NOT qualify.
+- The clip must contain both the product name and its explanation.
+- If no moment qualifies, return {"clips":[]}. Never invent a product that is not in the transcript.
+- For each clip also return "product": the product name exactly as spoken in the transcript, and "benefit": one short sentence (${lang}) on the function/benefit explained in the clip.
+` : ''}
 Use the transcript timestamps: "start" must be the start time of the line where the clip begins and "end" the end time of the line where it ends.
 
 Write "title" and "hook" in ${lang}.
@@ -57,7 +64,7 @@ Write "title" and "hook" in ${lang}.
 - score: 0-100 predicted viral potential, be honest and spread the scores.
 
 Respond with ONLY valid JSON, no markdown, in exactly this shape:
-{"clips":[{"start":12.3,"end":58.1,"title":"...","hook":"...","reason":"...","score":87}]}
+{"clips":[{"start":12.3,"end":58.1,"title":"...","hook":"...","reason":"...","score":87${productMode ? ',"product":"...","benefit":"..."' : ''}}]}
 
 TRANSCRIPT:
 ${transcriptToText(segments)}`;
@@ -81,6 +88,8 @@ export function parseClips(text) {
       hook: String(c.hook || '').trim(),
       reason: String(c.reason || '').trim(),
       score: Math.max(0, Math.min(100, Math.round(Number(c.score) || 0))),
+      product: String(c.product || '').trim(),
+      benefit: String(c.benefit || '').trim(),
     }))
     .filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start);
 }

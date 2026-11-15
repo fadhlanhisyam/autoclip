@@ -20,6 +20,10 @@ FILE YANG BISA ANDA UBAH
                   podcast sampai 1 tahun terakhir). Kalau isi videonya ternyata
                   tidak membahas niche, video dilewati dan dicoba podcast lain.
                   Selama niche diisi, worker TIDAK mengambil podcast acak.
+                  Mode produk: hanya momen yang menyebut NAMA produk dan menjelaskan
+                  fungsinya yang diambil (nama produk dicek ulang di transkrip).
+                  CAPTION.txt berisi PRODUK + FUNGSI + caption untuk keranjang kuning.
+                  Bisa juga menulis nama merek langsung, mis.: Skintific
 - antrian.txt   : tempel link YouTube yang ingin dipotong lebih dulu
 - channels.txt  : daftar sumber video otomatis
 - config.json   : pengaturan (jangan bagikan file ini, berisi password)

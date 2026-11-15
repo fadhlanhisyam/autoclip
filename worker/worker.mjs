@@ -194,7 +194,7 @@ async function uploadDate(url) {
 function readNiches() {
   return readLines(NICHES).map((l) => {
     const [name, query] = l.split('|').map((s) => s.trim());
-    return { name, query: query || `podcast ${name}` };
+    return { name, query: query || `podcast ${name}`, queries: query ? [query] : [`review produk ${name} podcast`, `podcast ${name}`] };
   }).filter((n) => n.name);
 }
 
@@ -202,16 +202,17 @@ async function nicheCandidates(processed) {
   const out = [];
   const minDate = new Date(Date.now() - cfg.nicheMaxAgeDays * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
   for (const n of readNiches()) {
-    log('Mencari podcast untuk niche:', n.name, `("${n.query}")`);
-    const keys = `${n.name} ${n.query}`.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && w !== 'podcast');
-    for (const prefix of ['ytsearch20', 'ytsearchdate20']) {
-      const r = await ytdlp(['--flat-playlist', '--print', PRINT, `${prefix}:${n.query}`], { quiet: true });
+    log('Mencari podcast untuk niche:', n.name, `(${n.queries.map((q) => `"${q}"`).join(', ')})`);
+    const keys = n.name.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && w !== 'podcast');
+    for (const [q, prefix] of n.queries.flatMap((q) => [[q, 'ytsearch20'], [q, 'ytsearchdate20']])) {
+      const r = await ytdlp(['--flat-playlist', '--print', PRINT, `${prefix}:${q}`], { quiet: true });
       for (const v of parseListing(r.out)) {
         if (processed.has(v.id) || out.some((c) => c.id === v.id)) continue;
         if (v.duration && (v.duration < cfg.minVideoMinutes * 60 || v.duration > cfg.maxVideoMinutes * 60)) continue;
         if (v.views && v.views < cfg.nicheMinViews) continue;
         const title = v.title.toLowerCase();
-        const match = keys.filter((k) => title.includes(k)).length;
+        // niche words in the title, plus a bonus for review/product talk
+        const match = keys.filter((k) => title.includes(k)).length * 2 + (/review|rekomendasi|produk|unboxing|racun/.test(title) ? 1 : 0);
         out.push({ ...v, niche: n.name, minDate, match });
       }
     }
@@ -296,6 +297,17 @@ async function pickVideos(processed) {
   return picked;
 }
 
+// Is (part of) the product name really spoken inside the clip? Fuzzy on purpose:
+// Whisper may spell brands slightly differently ("Vaselin" vs "Vaseline").
+function productSpoken(c, words) {
+  if (!c.product) return false;
+  const norm = (s) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
+  const tokens = c.product.split(/\s+/).map(norm).filter((w) => w.length >= 3);
+  if (!tokens.length) return false;
+  const spoken = words.filter((w) => w.end > c.start - 2 && w.start < c.end + 2).map((w) => norm(w.word));
+  return tokens.some((tk) => spoken.some((s) => s && (s.startsWith(tk.slice(0, 5)) || tk.startsWith(s.slice(0, 5))) && s.length >= 3));
+}
+
 // ---------- 2-6. process one video ----------
 async function processVideo(v, idx) {
   const dir = path.join(WORK, v.id);
@@ -348,13 +360,22 @@ async function processVideo(v, idx) {
       maxDur: cfg.maxDur,
       language: cfg.language === 'en' ? 'en' : 'id',
       notes: v.niche
-        ? `Klip ini untuk konten AFFILIATE niche "${v.niche}". Pilih HANYA momen yang membahas ${v.niche}: masalah yang dialami, tips, pengalaman memakai produk, rekomendasi, atau hal yang membuat penonton ingin membeli produk ${v.niche}. Hook harus kuat di 3 detik pertama. Lewati pembukaan, iklan lain, dan basa-basi. Jika video ini sama sekali TIDAK membahas ${v.niche}, kembalikan {\"clips\":[]}.`
+        ? `Klip untuk konten AFFILIATE niche "${v.niche}". Pilih momen saat pembicara menyebut NAMA produk ${v.niche} tertentu (merek/nama produk) dan menjelaskan fungsi, manfaat, kandungan, atau cara pakainya. Klip harus dimulai dari kalimat yang kuat dan memuat nama produk + penjelasannya.`
         : cfg.notes,
+      productMode: !!v.niche && cfg.productOnly !== false,
+      niche: v.niche || '',
     }),
   });
-  const clips = snapClips(h.clips || [], segments, { minDur: cfg.minDur, maxDur: cfg.maxDur, duration }).slice(0, cfg.clipsPerVideo);
+  let clips = snapClips(h.clips || [], segments, { minDur: cfg.minDur, maxDur: cfg.maxDur, duration });
+  if (v.niche && cfg.productOnly !== false) {
+    // keep only clips whose product name was really spoken inside the clip
+    const before = clips.length;
+    clips = clips.filter((c) => productSpoken(c, words));
+    if (before !== clips.length) log(`  ${before - clips.length} klip dibuang: nama produk tidak benar-benar diucapkan.`);
+  }
+  clips = clips.slice(0, cfg.clipsPerVideo);
   if (!clips.length) {
-    throw Object.assign(new Error(v.niche ? `video ini tidak membahas ${v.niche}` : 'AI tidak menemukan momen yang cocok.'), { notRelevant: !!v.niche });
+    throw Object.assign(new Error(v.niche ? `video ini tidak menjelaskan produk ${v.niche} secara spesifik` : 'AI tidak menemukan momen yang cocok.'), { notRelevant: !!v.niche });
   }
   log(`  ${clips.length} momen dipilih (${h.provider || 'AI'}).`);
 
@@ -416,16 +437,18 @@ async function processVideo(v, idx) {
     `SUMBER: ${v.title}`,
     `CHANNEL: ${v.channel}`,
     `LINK: ${v.url}`,
-    ...(v.niche ? [`NICHE AFFILIATE: ${v.niche} -> pasang link produk ${v.niche} di keranjang kuning / bio`] : []),
+    ...(v.niche ? [`NICHE AFFILIATE: ${v.niche}`] : []),
     '',
     ...made.flatMap((c) => [
       `==================== ${c.file} (${Math.round(c.dur)} detik, skor ${c.score}) ====================`,
       `Judul: ${c.title}`,
       `Bagian video asli: ${fmtTime(c.start)} – ${fmtTime(c.end)}`,
       `Kenapa dipilih: ${c.reason}`,
+      ...(c.product ? [`PRODUK: ${c.product}`, `FUNGSI: ${c.benefit}`, `-> Pasang link affiliate "${c.product}" di keranjang kuning / bio`] : []),
       '',
       'CAPTION (siap tempel):',
       `${c.hook}`,
+      ...(c.product ? [`${c.product}: ${c.benefit} Link produknya ada di keranjang kuning 👇`] : []),
       '',
       credit,
       `#fyp #podcastindonesia ${tag}${v.niche ? ' #' + v.niche.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase() : ''}`.trim(),
