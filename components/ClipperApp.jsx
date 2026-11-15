@@ -276,6 +276,9 @@ export default function ClipperApp() {
     overlay = { left: `${(x / meta.w) * 100}%`, width: `${(cw / meta.w) * 100}%` };
   }
 
+  // YouTube ID from the file name (YT-Download.bat names files 'Judul [ID].mp4'),
+  // kept in downloaded clip names so the PC worker knows this video was clipped
+  const videoId = (/\[([\w-]{11})\]/.exec(file?.name || '') || [])[1] || '';
   const busy = stage === 'working';
 
   return (
@@ -522,7 +525,7 @@ export default function ClipperApp() {
                   </button>
                 )}
                 {c.state === 'done' && c.outUrl && (
-                  <a className="button primary" href={c.outUrl} download={`${i + 1}-${slug(c.title)}.mp4`}>
+                  <a className="button primary" href={c.outUrl} download={`${i + 1}-${slug(c.title)}${videoId ? ` [${videoId}]` : ''}.mp4`}>
                     ⬇ Download ({(c.size / 1e6).toFixed(1)} MB)
                   </a>
                 )}

@@ -319,7 +319,7 @@ async function processVideo(v, idx) {
       // 5. captions + render
       fs.writeFileSync(path.join(dir, `subs_${n}.ass`), buildAss(words, c.start, c.start + dur, {}));
       const filter = videoFilter({ srcW: info.w, srcH: info.h, layout: cfg.layout, subs: `subs_${n}.ass`, fontsDir: 'fonts' });
-      const outName = `${n}-${slug(c.title)}.mp4`;
+      const outName = `${n}-${slug(c.title)} [${v.id}].mp4`;
       await ffmpeg(renderArgs({ input: sec, output: outName, duration: dur, filter }), dir);
       fs.renameSync(path.join(dir, outName), path.join(outDir, outName));
       made.push({ ...c, file: outName, dur });
@@ -356,6 +356,39 @@ async function processVideo(v, idx) {
   return { outDir, made };
 }
 
+// ---------- videos the user already clipped manually ----------
+// Files from YT-Download.bat (and AutoClip web downloads) carry the YouTube ID
+// in their name: "Judul [lqeDF5JwYvM].mp4". Any such ID counts as already clipped.
+function scanManualIds(processed) {
+  const home = os.homedir();
+  const dirs = cfg.scanDirs || [
+    path.join(home, 'Videos', 'YT Download'),
+    path.join(home, 'Downloads'),
+    OUT_ROOT,
+  ];
+  const found = new Map();
+  const walk = (d, depth) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const m = /\[([\w-]{11})\]/.exec(e.name);
+      if (m && !processed.has(m[1]) && !found.has(m[1])) found.set(m[1], e.name);
+      if (e.isDirectory() && depth > 0) walk(path.join(d, e.name), depth - 1);
+    }
+  };
+  for (const d of dirs) walk(d, 2);
+  if (found.size) {
+    const lines = [...found].map(([id, name]) => `${id}\t${today}\t(manual) ${name.slice(0, 80)}`);
+    fs.appendFileSync(PROCESSED, lines.join('\n') + '\n');
+    for (const id of found.keys()) processed.add(id);
+    log(`Ditemukan ${found.size} video yang sudah Anda clip/download sendiri -> dicatat ke processed.txt`);
+  }
+}
+
 // ---------- main ----------
 async function main() {
   log('AutoClip Worker mulai. Tanggal:', today);
@@ -369,6 +402,7 @@ async function main() {
   await run(YTDLP, ['-U'], { quiet: true });
 
   const processed = new Set(readLines(PROCESSED).map((l) => l.split(/\s/)[0]));
+  scanManualIds(processed);
   const videos = await pickVideos(processed);
   if (!videos.length) {
     summary.push('Tidak ada video baru yang cocok hari ini.');
