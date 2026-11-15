@@ -24,6 +24,15 @@ FILE YANG BISA ANDA UBAH
     layout         "blur" (layar penuh + latar blur) atau "crop"
     quality        "1080" (disarankan) atau "max"
 
+VIDEO YANG SUDAH PERNAH DI-CLIP (OTOMATIS)
+- Semua video yang diproses worker dicatat di processed.txt dan tidak diulang.
+- Video yang Anda clip sendiri juga otomatis dicatat: setiap kali jalan, worker
+  memeriksa folder Videos\YT Download, Downloads, dan Videos\AutoClip Hasil.
+  File yang namanya berisi ID YouTube, mis. "Judul [lqeDF5JwYvM].mp4", dianggap
+  sudah di-clip. (YT-Download.bat dan web AutoClip otomatis menulis ID ini.)
+- Ingin meng-clip ulang? Hapus barisnya dari processed.txt lalu tempel link-nya
+  di antrian.txt.
+
 JALANKAN MANUAL KAPAN SAJA
 - Klik dua kali JALANKAN-SEKARANG.bat
 
