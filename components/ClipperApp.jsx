@@ -35,7 +35,7 @@ export default function ClipperApp() {
   const [clips, setClips] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [rendering, setRendering] = useState(false);
-  const [fastMode, setFastMode] = useState(true);
+  const [fastMode, setFastMode] = useState(false);
   const [engine, setEngine] = useState('');
 
   const playerRef = useRef(null);
@@ -114,9 +114,9 @@ export default function ClipperApp() {
 
       setStatus('Memuat mesin video (±30 MB, hanya sekali)…');
       setProgress(0);
-      setPreferMultiThread(fastMode);
+      // multi-core is reliable (and much faster) for audio extraction
+      setPreferMultiThread(true);
       await getFFmpeg();
-      setEngine(isMultiThread() ? 'Mode cepat (multi-core) aktif' : 'Mode standar (1 core)');
 
       // 1. audio
       setStatus('Mengambil audio dari video…');
@@ -407,7 +407,7 @@ export default function ClipperApp() {
                 onChange={(e) => setFastMode(e.target.checked)}
                 disabled={rendering || busy}
               />
-              Mode cepat (pakai semua core CPU). Matikan kalau render macet di 0%.
+              Mode cepat render (eksperimental, pakai semua core CPU). Matikan kalau macet di 0%.
             </label>
             {engine && <span className="muted"> · {engine}</span>}
           </p>
