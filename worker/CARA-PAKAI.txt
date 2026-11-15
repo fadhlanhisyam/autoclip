@@ -37,7 +37,11 @@ VIDEO YANG SUDAH PERNAH DI-CLIP (OTOMATIS)
   di antrian.txt.
 
 JALANKAN MANUAL KAPAN SAJA
-- Klik dua kali JALANKAN-SEKARANG.bat
+- Klik dua kali JALANKAN-SEKARANG.bat. Program akan bertanya:
+    1) niche produk hari ini (pisahkan dengan koma; Enter = tetap; - = tanpa niche)
+    2) link YouTube khusus (Enter = cari otomatis)
+    3) jumlah video yang diproses
+  Niche yang Anda ketik disimpan ke niche.txt dan dipakai juga oleh jadwal 09.00.
 
 CEK HASIL / MASALAH
 - status-terakhir.txt : ringkasan hasil terakhir

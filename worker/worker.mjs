@@ -10,6 +10,7 @@
 //  6. save to Videos\AutoClip Hasil\<date>\ with a ready-to-paste caption file
 
 import { spawn } from 'node:child_process';
+import readline from 'node:readline/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -439,9 +440,53 @@ function scanManualIds(processed) {
   }
 }
 
+// ---------- interactive questions (only when started with --tanya) ----------
+function writeNiches(list) {
+  const header = (fs.existsSync(NICHES) ? fs.readFileSync(NICHES, 'utf8').replace(/^\uFEFF/, '') : '')
+    .split(/\r?\n/)
+    .filter((l) => l.trim().startsWith('#'));
+  fs.writeFileSync(NICHES, [...header, '', ...list, ''].join('\r\n'));
+}
+
+async function askUser() {
+  const rl = readline.createInterface({ input: process.stdin, terminal: false });
+  const lines = rl[Symbol.asyncIterator]();
+  const ask = async (q) => {
+    process.stdout.write(q);
+    const { value } = await lines.next();
+    return value ?? '';
+  };
+  try {
+    const current = readNiches().map((n) => n.name);
+    console.log('\n==============================================');
+    console.log('  Niche produk affiliate saat ini: ' + (current.length ? current.join(', ') : '(belum ada)'));
+    console.log('==============================================');
+    const a = (await ask('Niche produk hari ini? (pisahkan dengan koma | Enter = tetap | - = tanpa niche)\n> ')).trim();
+    if (a === '-') {
+      writeNiches([]);
+      log('Niche dikosongkan: worker mencari podcast yang sedang ramai.');
+    } else if (a) {
+      const list = a.split(',').map((s) => s.trim()).filter(Boolean);
+      writeNiches(list);
+      log('Niche disimpan:', list.join(', '));
+    }
+    const b = (await ask('Ada link YouTube khusus? (tempel, pisahkan dengan spasi | Enter = cari otomatis)\n> ')).trim();
+    const links = b.split(/\s+/).filter((s) => /youtu\.?be/.test(s));
+    if (links.length) {
+      fs.appendFileSync(QUEUE, '\n' + links.join('\n') + '\n');
+      log(`${links.length} link ditambahkan ke antrian.`);
+    }
+    const c = (await ask(`Berapa video yang diproses kali ini? (Enter = ${cfg.videosPerDay})\n> `)).trim();
+    if (/^\d+$/.test(c) && +c > 0) cfg.videosPerDay = Math.min(10, +c);
+  } finally {
+    rl.close();
+  }
+}
+
 // ---------- main ----------
 async function main() {
   log('AutoClip Worker mulai. Tanggal:', today);
+  if (process.argv.includes('--tanya')) await askUser();
   for (const [name, p] of [['yt-dlp', YTDLP], ['ffmpeg', FFMPEG], ['ffprobe', FFPROBE], ['font', FONT]]) {
     if (!fs.existsSync(p)) throw new Error(`${name} tidak ditemukan di ${p}. Jalankan YT-Download.bat sekali / SETUP-WORKER.bat.`);
   }
