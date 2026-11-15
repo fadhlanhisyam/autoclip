@@ -168,7 +168,7 @@ export default function ClipperApp() {
         centerX: 0.5,
         layout: defaultLayout,
         captions: true,
-        showTitle: true,
+        showTitle: false,
         state: 'idle',
         progress: 0,
       }));
