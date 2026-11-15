@@ -33,6 +33,8 @@ const DEFAULTS = {
   minVideoMinutes: 8,
   maxVideoMinutes: 150,
   maxAgeDays: 3,
+  nicheMaxAgeDays: 60,
+  nicheMinViews: 5000,
   minViews: 20000,
   layout: 'blur',
   quality: '1080',
@@ -52,6 +54,7 @@ const WORK = path.join(HERE, 'work');
 const PROCESSED = path.join(HERE, 'processed.txt');
 const QUEUE = path.join(HERE, 'antrian.txt');
 const SOURCES = path.join(HERE, 'channels.txt');
+const NICHES = path.join(HERE, 'niche.txt');
 const STATUS = path.join(HERE, 'status-terakhir.txt');
 
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
@@ -184,6 +187,33 @@ async function uploadDate(url) {
   return /^\d{8}$/.test(d) ? d : null;
 }
 
+// niche.txt: "skincare" or "skincare | podcast skincare kulit kering"
+function readNiches() {
+  return readLines(NICHES).map((l) => {
+    const [name, query] = l.split('|').map((s) => s.trim());
+    return { name, query: query || `podcast ${name}` };
+  }).filter((n) => n.name);
+}
+
+async function nicheCandidates(processed) {
+  const out = [];
+  const minDate = new Date(Date.now() - cfg.nicheMaxAgeDays * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+  for (const n of readNiches()) {
+    log('Mencari podcast untuk niche:', n.name, `("${n.query}")`);
+    // newest uploads first, then relevance, so niche videos stay fresh but on-topic
+    for (const prefix of ['ytsearchdate15', 'ytsearch10']) {
+      const r = await ytdlp(['--flat-playlist', '--print', PRINT, `${prefix}:${n.query}`], { quiet: true });
+      for (const v of parseListing(r.out)) {
+        if (processed.has(v.id) || out.some((c) => c.id === v.id)) continue;
+        if (v.duration && (v.duration < cfg.minVideoMinutes * 60 || v.duration > cfg.maxVideoMinutes * 60)) continue;
+        if (v.views && v.views < cfg.nicheMinViews) continue;
+        out.push({ ...v, niche: n.name, minDate });
+      }
+    }
+  }
+  return out;
+}
+
 async function pickVideos(processed) {
   const picked = [];
   // manual queue has priority
@@ -195,6 +225,23 @@ async function pickVideos(processed) {
   }
   if (picked.length >= cfg.videosPerDay) return picked.slice(0, cfg.videosPerDay);
 
+  // 1) niche videos first (one per niche per day if possible), sorted by views
+  const niche = (await nicheCandidates(processed)).sort((a, b) => b.views - a.views);
+  const usedNiches = new Set();
+  for (const pass of [0, 1]) {
+    for (const v of niche) {
+      if (picked.length >= cfg.videosPerDay) break;
+      if (picked.some((p) => p.id === v.id)) continue;
+      if (pass === 0 && usedNiches.has(v.niche)) continue;
+      const d = await uploadDate(v.url);
+      if (d && d < v.minDate) continue;
+      picked.push({ ...v, uploadDate: d });
+      usedNiches.add(v.niche);
+    }
+  }
+  if (picked.length >= cfg.videosPerDay) return picked;
+
+  // 2) then trending podcasts from channels.txt
   const cands = [];
   for (const line of readLines(SOURCES)) {
     log('Mencari video di:', line);
@@ -271,7 +318,9 @@ async function processVideo(v, idx) {
       minDur: cfg.minDur,
       maxDur: cfg.maxDur,
       language: cfg.language === 'en' ? 'en' : 'id',
-      notes: cfg.notes,
+      notes: v.niche
+        ? `Klip ini untuk konten AFFILIATE niche "${v.niche}". Pilih HANYA momen yang membahas ${v.niche}: masalah yang dialami, tips, pengalaman memakai produk, rekomendasi, atau hal yang membuat penonton ingin membeli produk ${v.niche}. Hook harus kuat di 3 detik pertama. Lewati pembukaan, iklan lain, dan basa-basi.`
+        : cfg.notes,
     }),
   });
   const clips = snapClips(h.clips || [], segments, { minDur: cfg.minDur, maxDur: cfg.maxDur, duration }).slice(0, cfg.clipsPerVideo);
@@ -336,6 +385,7 @@ async function processVideo(v, idx) {
     `SUMBER: ${v.title}`,
     `CHANNEL: ${v.channel}`,
     `LINK: ${v.url}`,
+    ...(v.niche ? [`NICHE AFFILIATE: ${v.niche} -> pasang link produk ${v.niche} di keranjang kuning / bio`] : []),
     '',
     ...made.flatMap((c) => [
       `==================== ${c.file} (${Math.round(c.dur)} detik, skor ${c.score}) ====================`,
@@ -347,7 +397,7 @@ async function processVideo(v, idx) {
       `${c.hook}`,
       '',
       credit,
-      `#fyp #podcastindonesia ${tag}`.trim(),
+      `#fyp #podcastindonesia ${tag}${v.niche ? ' #' + v.niche.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase() : ''}`.trim(),
       '',
     ]),
   ].join('\n');
@@ -416,7 +466,7 @@ async function main() {
     i++;
     try {
       const { outDir, made } = await processVideo(v, i);
-      summary.push(`✓ ${made.length} klip dari "${v.title}" (${v.channel}) → ${outDir}`);
+      summary.push(`✓ ${made.length} klip dari "${v.title}" (${v.channel})${v.niche ? ' [niche: ' + v.niche + ']' : ''} → ${outDir}`);
     } catch (e) {
       summary.push(`✗ "${v.title || v.url}": ${e.message}`);
       log('  ✗', e.message);

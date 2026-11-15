@@ -1,0 +1,14 @@
+# NICHE PRODUK AFFILIATE
+# Tulis niche produk yang Anda promosikan, satu per baris. Worker akan mencari
+# podcast yang membahas niche itu LEBIH DULU, lalu memotong momen yang relevan
+# untuk konten affiliate (tips, masalah, pengalaman, rekomendasi produk).
+#
+# Format:
+#   niche
+#   niche | kata kunci pencarian sendiri
+#
+# Contoh (hapus tanda # di depan untuk mengaktifkan):
+# skincare | podcast skincare kulit
+# body care | podcast perawatan kulit tubuh
+# home organization | podcast rumah rapi beberes
+

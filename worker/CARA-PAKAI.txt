@@ -2,7 +2,7 @@ AUTOCLIP WORKER - Karyawan Downloader + Editor (Virtual Office)
 =================================================================
 
 APA YANG DIKERJAKAN SETIAP HARI JAM 09.00
-1. Memilih video YouTube baru (antrian.txt dulu, lalu sumber di channels.txt)
+1. Memilih video: antrian.txt dulu, lalu podcast sesuai niche.txt, lalu channels.txt
 2. Download AUDIO saja, lalu transkrip lewat server AutoClip Anda (gratis)
 3. AI memilih momen terbaik
 4. Download HANYA potongan itu dalam kualitas HD
@@ -15,6 +15,9 @@ PASANG (sekali saja)
 - Klik dua kali SETUP-WORKER.bat, ketik password AutoClip, lalu ketik y untuk uji coba.
 
 FILE YANG BISA ANDA UBAH
+- niche.txt     : niche produk affiliate Anda. Worker mencari podcast yang
+                  membahas niche ini LEBIH DULU (podcast sampai 60 hari terakhir),
+                  lalu memotong momen yang cocok untuk promosi produk.
 - antrian.txt   : tempel link YouTube yang ingin dipotong lebih dulu
 - channels.txt  : daftar sumber video otomatis
 - config.json   : pengaturan (jangan bagikan file ini, berisi password)
