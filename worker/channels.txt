@@ -1,0 +1,18 @@
+# SUMBER VIDEO untuk karyawan AutoClip Worker
+# Satu baris = satu sumber. Baris yang diawali # diabaikan.
+#
+# Format 1 - link channel YouTube (video terbaru channel itu):
+#   https://www.youtube.com/@namachannel
+#
+# Format 2 - pencarian video terbaru, bisa dibatasi nama channel:
+#   cari: kata kunci | channel: potongan nama channel
+#
+# Setiap hari worker memilih video BARU (maks 3 hari) dengan penonton terbanyak,
+# lalu memotong momen terbaiknya. Video yang sudah diproses tidak diulang.
+
+https://www.youtube.com/@radityadika
+cari: CURHAT BANG Denny Sumargo podcast | channel: CURHAT BANG
+cari: Close The Door Deddy Corbuzier podcast | channel: Deddy Corbuzier
+cari: Podcast Warung Kopi | channel: Warung Kopi
+cari: Lentera Malam podcast | channel: Lentera Malam
+cari: podcast indonesia viral terbaru

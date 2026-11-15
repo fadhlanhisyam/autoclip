@@ -1,0 +1,5 @@
+# ANTRIAN PRIORITAS
+# Tempel link YouTube di bawah (satu link per baris). Worker akan memproses
+# link di sini LEBIH DULU sebelum mencari video sendiri, lalu menghapusnya
+# dari daftar setelah selesai.
+
