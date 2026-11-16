@@ -35,6 +35,7 @@ const DEFAULTS = {
   maxVideoMinutes: 150,
   maxAgeDays: 3,
   nicheMaxAgeDays: 365,
+  nicheMinVideoMinutes: 3,
   nicheMinViews: 1000,
   nicheTries: 3,
   nicheFallback: false,
@@ -63,9 +64,17 @@ const STATUS = path.join(HERE, 'status-terakhir.txt');
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
 const summary = [];
 
+// manual runs (JALANKAN-SEKARANG.bat) also keep a log file, so problems can be checked afterwards
+const LOGFILE = process.argv.includes('--tanya') ? path.join(HERE, 'logs', `manual-${today}.log`) : null;
 function log(...a) {
   const t = new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour12: false });
   console.log(`[${t}]`, ...a);
+  if (LOGFILE) {
+    try {
+      fs.mkdirSync(path.dirname(LOGFILE), { recursive: true });
+      fs.appendFileSync(LOGFILE, `[${t}] ${a.map(String).join(' ')}\r\n`);
+    } catch {}
+  }
 }
 function readJson(p, fallback) {
   try {
@@ -110,6 +119,22 @@ async function ytdlp(args, opts) {
   }
   return r;
 }
+
+// YouTube changes often; an old yt-dlp then fails every search. Update once per run if that happens.
+let ytdlpUpdated = false;
+async function ytdlpSearch(query) {
+  let r = await ytdlp(['--flat-playlist', '--print', PRINT, query], { quiet: true });
+  if (r.code !== 0 && !ytdlpUpdated) {
+    ytdlpUpdated = true;
+    log('  ! yt-dlp error:', lastLine(r.err), '-> mencoba update yt-dlp...');
+    const u = await run(YTDLP, ['-U'], { quiet: true });
+    log('   ', lastLine(u.out || u.err));
+    r = await ytdlp(['--flat-playlist', '--print', PRINT, query], { quiet: true });
+  }
+  if (r.code !== 0) log('  ! yt-dlp error:', lastLine(r.err));
+  return r;
+}
+const lastLine = (t) => String(t || '').trim().split(/\r?\n/).filter(Boolean).pop()?.slice(0, 300) || '(tanpa pesan)';
 
 async function ffmpeg(args, cwd) {
   const r = await run(FFMPEG, ['-hide_banner', '-loglevel', 'error', ...args], { cwd, quiet: true });
@@ -194,7 +219,7 @@ async function uploadDate(url) {
 function readNiches() {
   return readLines(NICHES).map((l) => {
     const [name, query] = l.split('|').map((s) => s.trim());
-    return { name, query: query || `podcast ${name}`, queries: query ? [query] : [`review produk ${name} podcast`, `podcast ${name}`] };
+    return { name, query: query || `podcast ${name}`, queries: query ? [query] : [`review ${name}`, `review produk ${name} podcast`, `podcast ${name}`] };
   }).filter((n) => n.name);
 }
 
@@ -204,19 +229,26 @@ async function nicheCandidates(processed) {
   for (const n of readNiches()) {
     log('Mencari podcast untuk niche:', n.name, `(${n.queries.map((q) => `"${q}"`).join(', ')})`);
     const keys = n.name.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && w !== 'podcast');
+    const skip = { sudahDiproses: 0, terlaluPendek: 0, terlaluPanjang: 0, viewsSedikit: 0 };
+    let found = 0;
     for (const [q, prefix] of n.queries.flatMap((q) => [[q, 'ytsearch20'], [q, 'ytsearchdate20']])) {
-      const r = await ytdlp(['--flat-playlist', '--print', PRINT, `${prefix}:${q}`], { quiet: true });
+      const r = await ytdlpSearch(`${prefix}:${q}`);
       for (const v of parseListing(r.out)) {
-        if (processed.has(v.id) || out.some((c) => c.id === v.id)) continue;
-        if (v.duration && (v.duration < cfg.minVideoMinutes * 60 || v.duration > cfg.maxVideoMinutes * 60)) continue;
-        if (v.views && v.views < cfg.nicheMinViews) continue;
+        found++;
+        if (out.some((c) => c.id === v.id)) continue;
+        if (processed.has(v.id)) { skip.sudahDiproses++; continue; }
+        if (v.duration && v.duration < cfg.nicheMinVideoMinutes * 60) { skip.terlaluPendek++; continue; }
+        if (v.duration && v.duration > cfg.maxVideoMinutes * 60) { skip.terlaluPanjang++; continue; }
+        if (v.views && v.views < cfg.nicheMinViews) { skip.viewsSedikit++; continue; }
         const title = v.title.toLowerCase();
         // niche words in the title, plus a bonus for review/product talk
         const match = keys.filter((k) => title.includes(k)).length * 2 + (/review|rekomendasi|produk|unboxing|racun/.test(title) ? 1 : 0);
         out.push({ ...v, niche: n.name, minDate, match });
       }
     }
-    log(`  ${out.filter((c) => c.niche === n.name).length} kandidat untuk "${n.name}".`);
+    const why = Object.entries(skip).filter(([, c]) => c).map(([k, c]) => `${k} ${c}`).join(', ');
+    log(`  ${out.filter((c) => c.niche === n.name).length} kandidat untuk "${n.name}" (hasil pencarian ${found}${why ? `; dilewati: ${why}` : ''}).`);
+    if (!found) log('  ! Pencarian YouTube tidak mengembalikan hasil sama sekali. Cek koneksi internet / pesan yt-dlp di atas.');
   }
   // titles that mention the niche first, then most watched
   return out.sort((a, b) => b.match - a.match || b.views - a.views);
