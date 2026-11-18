@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { buildAss } from './lib/captions.mjs';
 import { snapClips, fmtTime } from './lib/highlights.mjs';
 import { audioExtractArgs, audioChunkArgs, videoFilter, renderArgs } from './lib/commands.mjs';
+import { driveReady, uploadFolder } from './lib/gdrive.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -53,6 +54,7 @@ const YTDLP = cfg.ytdlp || path.join(TOOLS, exe('yt-dlp'));
 const FFMPEG = cfg.ffmpeg || path.join(TOOLS, exe('ffmpeg'));
 const FFPROBE = cfg.ffprobe || path.join(TOOLS, exe('ffprobe'));
 const FONT = cfg.font || path.join(ROOT, 'public', 'fonts', 'Poppins-Bold.ttf');
+const RCLONE = cfg.rclone || path.join(TOOLS, exe('rclone'));
 const OUT_ROOT = cfg.outDir || path.join(os.homedir(), 'Videos', 'AutoClip Hasil');
 const WORK = path.join(HERE, 'work');
 const PROCESSED = path.join(HERE, 'processed.txt');
@@ -613,6 +615,13 @@ async function main() {
       try {
         const { outDir, made } = await processVideo(v, i);
         summary.push(`✓ ${made.length} klip dari "${v.title}" (${v.channel})${v.niche ? ' [niche: ' + v.niche + ']' : ''} → ${outDir}`);
+        // optional: copy to Google Drive (SETUP-GDRIVE.bat)
+        const drive = made.length ? await driveReady(RCLONE) : null;
+        if (drive) {
+          log('  Upload ke Google Drive…');
+          const up = await uploadFolder(drive, outDir, `AutoClip Podcast/${today}/${path.basename(outDir)}`);
+          log(up.ok ? `  ☁ Terupload ke Google Drive: AutoClip Podcast/${today}/${path.basename(outDir)}` : `  ! Upload Google Drive gagal: ${up.error}`);
+        }
         fs.appendFileSync(PROCESSED, `${v.id}\t${today}\t${(v.title || '').slice(0, 80)}\n`);
         v = null;
       } catch (e) {

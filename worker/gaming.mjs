@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { buildAss } from './lib/captions.mjs';
 import { fitClips, fmtTime } from './lib/highlights.mjs';
 import { findPeaks, speechRanges, pieces, annotatePeaks, VOICE_BAND } from './lib/loudness.mjs';
+import { driveReady, uploadFolder } from './lib/gdrive.mjs';
 import { audioExtractArgs, audioChunkArgs, renderArgs, gameFilter, splitHeights, boxPixels } from './lib/commands.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -52,6 +53,7 @@ const YTDLP = cfg.ytdlp || path.join(TOOLS, exe('yt-dlp'));
 const FFMPEG = cfg.ffmpeg || path.join(TOOLS, exe('ffmpeg'));
 const FFPROBE = cfg.ffprobe || path.join(TOOLS, exe('ffprobe'));
 const FONT = cfg.font || path.join(ROOT, 'public', 'fonts', 'Poppins-Bold.ttf');
+const RCLONE = cfg.rclone || path.join(TOOLS, exe('rclone'));
 const OUT_ROOT = cfg.gamingOutDir || path.join(os.homedir(), 'Videos', 'AutoClip Gaming');
 const WORK = path.join(HERE, 'work');
 const OUT_W = 1080;
@@ -483,10 +485,19 @@ async function main() {
   }
   saveG();
 
+  const drive = await driveReady(RCLONE);
+  log(drive ? 'Google Drive terhubung: hasil akan diupload otomatis ke folder "AutoClip Gaming".' : 'Info: upload otomatis ke Google Drive belum aktif (jalankan SETUP-GDRIVE.bat sekali kalau mau).');
   const results = [];
   for (let i = 0; i < links.length; i++) {
     try {
-      results.push(await processVideo(links[i], i + 1, links.length));
+      const res = await processVideo(links[i], i + 1, links.length);
+      results.push(res);
+      if (drive && res.made.length) {
+        const remote = `AutoClip Gaming/${today}/${path.basename(res.outDir)}`;
+        log('  Upload ke Google Drive…');
+        const up = await uploadFolder(drive, res.outDir, remote);
+        log(up.ok ? `  ☁ Terupload ke Google Drive: ${remote}` : `  ! Upload Google Drive gagal: ${up.error} (file tetap ada di PC)`);
+      }
     } catch (e) {
       if (e.fatal) throw e;
       log(`  ✗ video dilewati: ${e.message}`);

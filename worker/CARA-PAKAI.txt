@@ -71,3 +71,11 @@ CATATAN
    Enter kalau sudah pas, atau ketik perintah (1-5, + -, w a s d, j l, t g).
 5. Hasil: Videos\AutoClip Gaming\<tanggal>\<channel - judul>\ + CAPTION.txt
 Pengaturan terakhir (posisi kamera, watermark) disimpan di gaming.json.
+
+==================================================
+ UPLOAD OTOMATIS KE GOOGLE DRIVE
+==================================================
+1. Klik dua kali SETUP-GDRIVE.bat (sekali saja).
+2. Browser terbuka: login akun Google, klik "Allow".
+3. Folder "AutoClip Gaming" dan "AutoClip Podcast" dibuat di Google Drive Anda.
+Setelah itu setiap klip yang selesai otomatis terupload ke sana (file tetap ada di PC juga).
