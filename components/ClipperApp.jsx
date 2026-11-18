@@ -284,6 +284,12 @@ export default function ClipperApp() {
   return (
     <main className="wrap">
       <header className="top">
+        <nav className="tabs">
+          <a href="/" className="on">
+            Podcast / umum
+          </a>
+          <a href="/gaming">Gaming</a>
+        </nav>
         <h1>
           AutoClip <span className="tag">beta</span>
         </h1>

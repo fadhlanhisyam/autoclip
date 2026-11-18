@@ -1,5 +1,5 @@
 import { checkPassword } from '@/lib/auth';
-import { buildPrompt, parseClips } from '@/lib/highlights';
+import { buildPrompt, buildGamingPrompt, parseClips } from '@/lib/highlights';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -142,18 +142,21 @@ export async function POST(req) {
 
   const body = await req.json();
   const segments = Array.isArray(body.segments) ? body.segments : [];
-  if (!segments.length) return Response.json({ error: 'Transkrip kosong' }, { status: 400 });
+  const gaming = body.mode === 'gaming';
+  const peaks = gaming && Array.isArray(body.peaks) ? body.peaks.slice(0, 60).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.db)) : [];
+  if (!segments.length && !peaks.length) return Response.json({ error: 'Transkrip kosong' }, { status: 400 });
 
-  const prompt = buildPrompt({
+  const common = {
     segments,
     count: Math.min(15, Math.max(1, Number(body.count) || 6)),
     minDur: Number(body.minDur) || 20,
     maxDur: Number(body.maxDur) || 60,
     language: body.language || 'id',
     notes: String(body.notes || '').slice(0, 800),
-    productMode: body.productMode === true,
-    niche: String(body.niche || '').slice(0, 100),
-  });
+  };
+  const prompt = gaming
+    ? buildGamingPrompt({ ...common, peaks, duration: Number(body.duration) || 0, game: String(body.game || '').slice(0, 60) })
+    : buildPrompt({ ...common, productMode: body.productMode === true, niche: String(body.niche || '').slice(0, 100) });
 
   const providers = [];
   if (process.env.ANTHROPIC_API_KEY) providers.push(['claude', askClaude]);
