@@ -3,3 +3,4 @@ worker/work/
 worker/logs/
 worker/processed.txt
 worker/status-terakhir.txt
+worker/cache/

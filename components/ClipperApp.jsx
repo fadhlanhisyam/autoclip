@@ -58,18 +58,28 @@ export default function ClipperApp() {
   }
 
   async function api(path, opts = {}) {
-    const res = await fetch(path, {
-      ...opts,
-      headers: { ...(opts.headers || {}), 'x-app-password': password },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 401) {
-      setNeedPassword(true);
-      throw new Error('Password salah atau belum diisi.');
+    for (let waited = 0; ; ) {
+      const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), 'x-app-password': password } });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setNeedPassword(true);
+        throw new Error('Password salah atau belum diisi.');
+      }
+      if (res.status === 429 && d.retryAfter && !d.daily && waited < 3 * 3600) {
+        // free transcription quota (±2 h of audio per hour): wait, then continue automatically
+        const sec = Math.min(Number(d.retryAfter) + 15, 3600);
+        for (let left = sec; left > 0; left -= 5) {
+          setStatus(`Batas gratis transkrip tercapai. Lanjut otomatis dalam ${Math.ceil(left / 60)} menit… (jangan tutup tab)`);
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+        waited += sec;
+        continue;
+      }
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`);
+      return d;
     }
-    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-    return data;
   }
+
 
   function pickFile(f) {
     if (!f) return;

@@ -41,11 +41,27 @@ export async function POST(req) {
       body: out,
     });
     if (res.status !== 429 && res.status < 500) break;
+    if (res.status === 429) break; // free-tier audio quota: retrying in seconds won't help
     await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
   }
 
   if (!res.ok) {
     const text = await res.text();
+    if (res.status === 429) {
+      // tell the caller how long to wait (free tier: ~2 h of audio per hour, 8 h per day)
+      const m = /try again in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:([\d.]+)s)?/i.exec(text);
+      let retryAfter = Number(res.headers.get('retry-after')) || 0;
+      if (m && (m[1] || m[2] || m[3])) retryAfter = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + Math.ceil(+m[3] || 0);
+      const daily = /per day|\(ASD\)/i.test(text);
+      return Response.json(
+        {
+          error: `Batas gratis transkrip Groq tercapai${daily ? ' (kuota harian)' : ''}. Coba lagi dalam ${Math.ceil((retryAfter || 600) / 60)} menit.`,
+          retryAfter: retryAfter || 600,
+          daily,
+        },
+        { status: 429 },
+      );
+    }
     return Response.json({ error: `Groq error ${res.status}: ${text.slice(0, 400)}` }, { status: 502 });
   }
 

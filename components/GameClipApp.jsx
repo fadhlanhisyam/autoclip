@@ -67,6 +67,7 @@ export default function GameClipApp() {
   const canvasRef = useRef(null);
   const stopAtRef = useRef(null);
   const dataKeyRef = useRef(null);
+  const partialRef = useRef(false);
   const clipsRef = useRef(clips);
   clipsRef.current = clips;
   const layoutRef = useRef();
@@ -85,15 +86,28 @@ export default function GameClipApp() {
   const gameAspect = OUT_W / (noCam ? splitHeights(0.4).bottom : bottom);
 
   async function api(path, opts = {}) {
-    const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), 'x-app-password': password } });
-    const d = await res.json().catch(() => ({}));
-    if (res.status === 401) {
-      setNeedPassword(true);
-      throw new Error('Password salah atau belum diisi.');
+    for (let waited = 0; ; ) {
+      const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), 'x-app-password': password } });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setNeedPassword(true);
+        throw new Error('Password salah atau belum diisi.');
+      }
+      if (res.status === 429 && d.retryAfter && !d.daily && waited < 3 * 3600) {
+        // free transcription quota (±2 h of audio per hour): wait, then continue automatically
+        const sec = Math.min(Number(d.retryAfter) + 15, 3600);
+        for (let left = sec; left > 0; left -= 5) {
+          setStatus(`Batas gratis transkrip tercapai. Lanjut otomatis dalam ${Math.ceil(left / 60)} menit… (jangan tutup tab)`);
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+        waited += sec;
+        continue;
+      }
+      if (!res.ok) throw new Error(d.error || `Error ${res.status}`);
+      return d;
     }
-    if (!res.ok) throw new Error(d.error || `Error ${res.status}`);
-    return d;
   }
+
 
   function pickFile(f) {
     if (!f) return;
@@ -263,19 +277,24 @@ export default function GameClipApp() {
       const key = `${file.name}|${file.size}|${language}`;
       let d = data && dataKeyRef.current === key ? data : null;
       if (!d) {
-        const { getFFmpeg, extractAudioChunks, setPreferMultiThread } = await import('@/lib/ffmpeg');
+        const { getFFmpeg, extractAudioChunks, cutAudio, dropAudio, setPreferMultiThread } = await import('@/lib/ffmpeg');
         setStatus('Memuat mesin video (±30 MB, hanya sekali)…');
         setProgress(0);
         setPreferMultiThread(true);
         await getFFmpeg();
 
         setStatus('Mengambil audio dari video…');
-        const chunks = await extractAudioChunks(file, meta.duration, CHUNK_SEC, setProgress);
+        const all = await extractAudioChunks(file, meta.duration, CHUNK_SEC, setProgress, { keep: true });
 
         setStatus('Mencari momen paling heboh dari suara (teriakan, ledakan)…');
         setProgress(0);
-        const { loudPeaks } = await import('@/lib/loudness');
-        const peaks = await loudPeaks(chunks, setProgress);
+        const { loudPeaks, speechRanges, pieces } = await import('@/lib/loudness');
+        const peaks = await loudPeaks(all, setProgress);
+        // transcribe only around the loud moments: saves the free Whisper quota on long streams
+        const ranges = speechRanges(peaks, meta.duration);
+        const chunks = ranges ? await cutAudio(pieces(ranges, CHUNK_SEC)) : all;
+        await dropAudio();
+        partialRef.current = !!ranges;
 
         const segments = [];
         const words = [];
@@ -324,7 +343,7 @@ export default function GameClipApp() {
           minDur,
           maxDur,
           language: language === 'en' ? 'en' : 'id',
-          notes,
+          notes: [notes, partialRef.current ? 'Speech was only transcribed around the loud moments; pick clips around those moments.' : ''].filter(Boolean).join(' '),
           game,
         }),
       });

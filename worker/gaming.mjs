@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAss } from './lib/captions.mjs';
 import { fitClips, fmtTime } from './lib/highlights.mjs';
-import { findPeaks } from './lib/loudness.mjs';
+import { findPeaks, speechRanges, pieces } from './lib/loudness.mjs';
 import { audioExtractArgs, audioChunkArgs, renderArgs, gameFilter, splitHeights, boxPixels } from './lib/commands.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -148,8 +148,10 @@ function loudnessDb(file, cwd) {
   });
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function api(pathname, init = {}, tries = 3) {
   let last;
+  let waited = 0;
   for (let i = 0; i < tries; i++) {
     try {
       const res = await fetch(cfg.site.replace(/\/$/, '') + pathname, {
@@ -163,13 +165,29 @@ async function api(pathname, init = {}, tries = 3) {
       } catch {}
       if (res.status === 401) throw Object.assign(new Error('Password AutoClip salah. Jalankan SETUP-WORKER.bat lagi.'), { fatal: true });
       if (res.ok) return data;
+      if (res.status === 429 && data.retryAfter) {
+        // free Whisper quota used up: wait it out instead of failing
+        const sec = Math.min(Number(data.retryAfter) + 15, 3 * 3600);
+        if (data.daily && sec > 3600) {
+          throw Object.assign(new Error(`Kuota transkrip harian Groq (gratis) sudah habis. Jalankan lagi sekitar ${Math.ceil(sec / 3600)} jam lagi — transkrip yang sudah jadi tersimpan, tidak diulang.`), { fatal: true });
+        }
+        if (waited + sec > 3 * 3600) throw Object.assign(new Error('Kuota transkrip Groq habis terlalu lama.'), { fatal: true });
+        log(`  ⏳ Batas gratis transkrip (±2 jam audio per jam) tercapai. Menunggu ${Math.ceil(sec / 60)} menit, lalu lanjut otomatis… (biarkan jendela ini terbuka)`);
+        for (let left = sec; left > 0; left -= 60) {
+          await sleep(Math.min(60, left) * 1000);
+          if (left > 60 && left % 300 < 60) log(`     sisa ±${Math.ceil((left - 60) / 60)} menit…`);
+        }
+        waited += sec;
+        i--; // a quota wait is not a failed attempt
+        continue;
+      }
       last = new Error(data.error || `HTTP ${res.status}: ${text.slice(0, 200)}`);
     } catch (e) {
       if (e.fatal) throw e;
       last = e;
     }
     log(`  ! ${pathname} gagal (percobaan ${i + 1}/${tries}): ${String(last.message).slice(0, 200)}`);
-    await new Promise((r) => setTimeout(r, 8000 * (i + 1)));
+    await sleep(8000 * (i + 1));
   }
   throw last;
 }
@@ -290,22 +308,37 @@ async function processVideo(url, idx, total) {
   const peaks = findPeaks(await loudnessDb('speech.mp3', dir));
   log(`  ${peaks.length} momen suara keras ditemukan.`);
 
-  const CH = 480;
+  // transcribe only around the loud moments (saves the free quota), cached per video
+  const ranges = speechRanges(peaks, duration);
+  const parts = pieces(ranges || [[0, duration]], 480);
+  const audioSec = parts.reduce((a, [s0, e0]) => a + e0 - s0, 0);
+  log(ranges
+    ? `  Transkrip hanya di sekitar momen heboh: ${fmtTime(audioSec)} dari ${fmtTime(duration)} (hemat kuota gratis).`
+    : `  Transkrip seluruh audio (${fmtTime(duration)}).`);
+  const cacheFile = path.join(HERE, 'cache', `${id}-${cfg.language || 'id'}.json`);
+  const cache = readJson(cacheFile, {});
   const segments = [];
   const words = [];
-  const parts = Math.ceil(duration / CH);
-  for (let start = 0, i = 0; start < duration; start += CH, i++) {
-    const name = `chunk_${i}.mp3`;
-    await ffmpeg(audioChunkArgs('speech.mp3', start, CH, name), dir);
-    const buf = fs.readFileSync(path.join(dir, name));
-    if (buf.length < 2000) continue;
-    log(`  Transkrip bagian ${i + 1}/${parts}…`);
-    const fd = new FormData();
-    fd.append('file', new Blob([buf], { type: 'audio/mpeg' }), name);
-    fd.append('language', cfg.language || 'id');
-    const t = await api('/api/transcribe', { method: 'POST', body: fd });
-    segments.push(...t.segments.map((s) => ({ ...s, start: s.start + start, end: s.end + start })));
-    words.push(...t.words.map((w) => ({ ...w, start: w.start + start, end: w.end + start })));
+  for (let i = 0; i < parts.length; i++) {
+    const [s0, e0] = parts[i];
+    const key = `${s0.toFixed(1)}-${e0.toFixed(1)}`;
+    let t = cache[key];
+    if (!t) {
+      const name = `chunk_${i}.mp3`;
+      await ffmpeg(audioChunkArgs('speech.mp3', s0, e0 - s0, name), dir);
+      const buf = fs.readFileSync(path.join(dir, name));
+      if (buf.length < 2000) continue;
+      log(`  Transkrip bagian ${i + 1}/${parts.length}…`);
+      const fd = new FormData();
+      fd.append('file', new Blob([buf], { type: 'audio/mpeg' }), name);
+      fd.append('language', cfg.language || 'id');
+      t = await api('/api/transcribe', { method: 'POST', body: fd });
+      cache[key] = { segments: t.segments, words: t.words };
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(cacheFile, JSON.stringify(cache));
+    }
+    segments.push(...t.segments.map((x) => ({ ...x, start: x.start + s0, end: x.end + s0 })));
+    words.push(...t.words.map((w) => ({ ...w, start: w.start + s0, end: w.end + s0 })));
   }
   if (!segments.length && !peaks.length) throw new Error('tidak ada suara streamer atau momen heboh yang terdeteksi');
 
@@ -323,7 +356,7 @@ async function processVideo(url, idx, total) {
       maxDur: g.maxDur,
       language: cfg.language === 'en' ? 'en' : 'id',
       game: g.game,
-      notes: g.notes || '',
+      notes: [g.notes, ranges ? 'Speech was only transcribed around the loud moments; pick clips around those moments.' : ''].filter(Boolean).join(' '),
     }),
   });
   const clips = fitClips(h.clips || [], segments, { minDur: g.minDur, maxDur: g.maxDur, duration }).slice(0, g.clips);

@@ -166,6 +166,15 @@ async function api(pathname, init = {}, tries = 3) {
       } catch {}
       if (res.status === 401) throw Object.assign(new Error('Password AutoClip salah. Jalankan SETUP-WORKER.bat lagi.'), { fatal: true });
       if (res.ok) return data;
+      if (res.status === 429 && data.retryAfter) {
+        // free Whisper quota (±2 h audio per hour, 8 h per day) used up: wait it out
+        const sec = Math.min(Number(data.retryAfter) + 15, 3 * 3600);
+        if (data.daily && sec > 3600) throw Object.assign(new Error(`Kuota transkrip harian Groq (gratis) habis. Coba lagi ±${Math.ceil(sec / 3600)} jam lagi.`), { fatal: true });
+        log(`  ⏳ Batas gratis transkrip tercapai. Menunggu ${Math.ceil(sec / 60)} menit, lalu lanjut otomatis…`);
+        await new Promise((r) => setTimeout(r, sec * 1000));
+        i--;
+        continue;
+      }
       last = new Error(data.error || `HTTP ${res.status}: ${text.slice(0, 200)}`);
     } catch (e) {
       if (e.fatal) throw e;
