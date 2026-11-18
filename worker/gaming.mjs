@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAss } from './lib/captions.mjs';
 import { fitClips, fmtTime } from './lib/highlights.mjs';
-import { findPeaks, speechRanges, pieces } from './lib/loudness.mjs';
+import { findPeaks, speechRanges, pieces, annotatePeaks, VOICE_BAND } from './lib/loudness.mjs';
 import { audioExtractArgs, audioChunkArgs, renderArgs, gameFilter, splitHeights, boxPixels } from './lib/commands.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -121,7 +121,9 @@ async function probe(file) {
 function loudnessDb(file, cwd) {
   return new Promise((resolve) => {
     const RATE = 8000;
-    const p = spawn(FFMPEG, ['-v', 'error', '-i', file, '-f', 's16le', '-ac', '1', '-ar', String(RATE), 'pipe:1'], { cwd, windowsHide: true });
+    // voice band only, so the streamer's yelling counts more than explosions / music
+    const af = `highpass=f=${VOICE_BAND.low},lowpass=f=${VOICE_BAND.high}`;
+    const p = spawn(FFMPEG, ['-v', 'error', '-i', file, '-af', af, '-f', 's16le', '-ac', '1', '-ar', String(RATE), 'pipe:1'], { cwd, windowsHide: true });
     const db = [];
     let sum = 0;
     let n = 0;
@@ -304,9 +306,9 @@ async function processVideo(url, idx, total) {
   await ffmpeg(audioExtractArgs(audio, 'speech.mp3'), dir);
   const { duration } = await probe(path.join(dir, 'speech.mp3'));
 
-  log('  Mencari momen heboh dari suara (teriakan, ledakan)…');
+  log('  Mencari momen streamer teriak / heboh dari suaranya…');
   const peaks = findPeaks(await loudnessDb('speech.mp3', dir));
-  log(`  ${peaks.length} momen suara keras ditemukan.`);
+  log(`  ${peaks.length} momen suara streamer keras ditemukan.`);
 
   // transcribe only around the loud moments (saves the free quota), cached per video
   const ranges = speechRanges(peaks, duration);
@@ -341,6 +343,9 @@ async function processVideo(url, idx, total) {
     words.push(...t.words.map((w) => ({ ...w, start: w.start + s0, end: w.end + s0 })));
   }
   if (!segments.length && !peaks.length) throw new Error('tidak ada suara streamer atau momen heboh yang terdeteksi');
+  const voiced = annotatePeaks(peaks, words, ranges);
+  const withSpeech = voiced.filter((p) => p.speech).length;
+  if (voiced.length) log(`  ${withSpeech} dari ${voiced.length} momen keras berisi suara streamer (sisanya kemungkinan suara game).`);
 
   log('  AI memilih momen paling berpotensi viral…');
   const h = await api('/api/highlights', {
@@ -349,7 +354,7 @@ async function processVideo(url, idx, total) {
     body: JSON.stringify({
       mode: 'gaming',
       segments,
-      peaks,
+      peaks: voiced,
       duration,
       count: g.clips,
       minDur: g.minDur,

@@ -139,16 +139,16 @@ export function buildGamingPrompt({ segments, peaks = [], duration, count, minDu
   const lang = language === 'en' ? 'English' : 'Bahasa Indonesia (casual, gaul, the way Indonesian gaming TikTok creators write)';
   return `You are an expert gaming clipper who turns long gameplay videos / livestreams${game ? ` of ${game}` : ''} into viral TikTok / Reels / YouTube Shorts clips.
 
-The video is ${fmtTime(duration)} long. You get (1) the streamer's speech with timestamps and (2) a list of LOUD moments detected in the audio (screams, explosions, hype, big reactions). Times are in seconds.
+The video is ${fmtTime(duration)} long. You get (1) the streamer's speech with timestamps and (2) a list of moments where the STREAMER'S VOICE suddenly gets loud (yelling, screaming, hype), with what they said at that second. Times are in seconds.
 
-Pick the ${count} BEST moments with the highest viral potential. Great gaming clips:
+Pick the ${count} BEST moments with the highest viral potential. TOP PRIORITY: the streamer's own loud, excited reactions (yelling, screaming, rage, hype, panic, laughing hard) together with what caused them. A loud moment with no streamer speech is probably just game sound: rank it lower. Great gaming clips:
+- Strong streamer reactions: screaming, rage, hype, panic, laughing, jumpscares.
 - Clutch plays, 1vX, multi-kills, insane aim, last-second wins, comebacks.
 - Big fails, funny deaths, bugs/glitches, trolling, unexpected events.
-- Strong streamer reactions: screaming, rage, hype, panic, laughing, jumpscares.
 - Funny banter or roasting with teammates or chat.
 - The first 2 seconds must already be interesting (action or a strong line). Start a few seconds BEFORE the climax so the viewer gets the setup, end right after the payoff/reaction.
 - Each clip is between ${minDur} and ${maxDur} seconds long, clips must not overlap.
-- Loud moments are strong hints but not proof: prefer moments where the speech also shows something happened.
+- Build the clip around the loud reaction: start a few seconds before it (the cause), end after the reaction calms down.
 ${notes ? `\nExtra instructions from the user: ${notes}\n` : ''}
 Write "title" and "hook" in ${lang}.
 - title: short catchy title (max 8 words).
@@ -159,8 +159,8 @@ Write "title" and "hook" in ${lang}.
 Respond with ONLY valid JSON, no markdown, in exactly this shape:
 {"clips":[{"start":12.3,"end":58.1,"title":"...","hook":"...","reason":"...","score":87}]}
 
-LOUD MOMENTS (time: loudness above normal):
-${peaks.length ? peaks.map((p) => `${p.t.toFixed(1)}: +${p.db.toFixed(0)} dB`).join('\n') : '(none detected)'}
+STREAMER LOUD MOMENTS (time: voice loudness above normal — what the streamer said right then):
+${peaks.length ? peaks.map((p) => `${p.t.toFixed(1)}: +${p.db.toFixed(0)} dB — ${p.speech === undefined ? '(not transcribed)' : p.speech ? `"${p.speech}"` : '(no speech, probably game sound)'}`).join('\n') : '(none detected)'}
 
 SPEECH:
 ${segments.length ? transcriptToText(segments) : '(no speech detected)'}`;

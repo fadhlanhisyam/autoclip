@@ -143,7 +143,7 @@ export async function POST(req) {
   const body = await req.json();
   const segments = Array.isArray(body.segments) ? body.segments : [];
   const gaming = body.mode === 'gaming';
-  const peaks = gaming && Array.isArray(body.peaks) ? body.peaks.slice(0, 60).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.db)) : [];
+  const peaks = gaming && Array.isArray(body.peaks) ? body.peaks.slice(0, 60).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.db)).map((p) => ({ t: p.t, db: p.db, speech: p.speech === undefined ? undefined : String(p.speech).slice(0, 120) })) : [];
   if (!segments.length && !peaks.length) return Response.json({ error: 'Transkrip kosong' }, { status: 400 });
 
   const common = {

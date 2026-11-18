@@ -286,9 +286,9 @@ export default function GameClipApp() {
         setStatus('Mengambil audio dari video…');
         const all = await extractAudioChunks(file, meta.duration, CHUNK_SEC, setProgress, { keep: true });
 
-        setStatus('Mencari momen paling heboh dari suara (teriakan, ledakan)…');
+        setStatus('Mencari momen streamer teriak / heboh dari suaranya…');
         setProgress(0);
-        const { loudPeaks, speechRanges, pieces } = await import('@/lib/loudness');
+        const { loudPeaks, speechRanges, pieces, annotatePeaks } = await import('@/lib/loudness');
         const peaks = await loudPeaks(all, setProgress);
         // transcribe only around the loud moments: saves the free Whisper quota on long streams
         const ranges = speechRanges(peaks, meta.duration);
@@ -324,7 +324,8 @@ export default function GameClipApp() {
           words.push(...r.words.map((w) => ({ ...w, start: w.start + off, end: w.end + off })));
         });
         if (!segments.length && !peaks.length) throw new Error('Tidak ada suara streamer atau momen heboh yang terdeteksi di video ini.');
-        d = { segments, words, peaks };
+        // what did the streamer say at each loud moment? (no speech = probably game sound)
+        d = { segments, words, peaks: annotatePeaks(peaks, words, ranges) };
         setData(d);
         dataKeyRef.current = key;
       }
@@ -742,7 +743,7 @@ export default function GameClipApp() {
         </section>
       )}
 
-      <footer className="foot">Transkrip: Whisper (Groq) · Momen: Gemini + deteksi suara heboh · Render: ffmpeg.wasm di browser</footer>
+      <footer className="foot">Transkrip: Whisper (Groq) · Momen: Gemini + deteksi teriakan streamer · Render: ffmpeg.wasm di browser</footer>
     </main>
   );
 }
