@@ -234,7 +234,7 @@ async function confirmLayout(dir, frame, srcW, srcH) {
   Gambar pratinjau dibuka (kiri: video asli, kotak KUNING = wajah, BIRU = game; kanan: hasil 9:16).
   Sudah pas?
     Enter        = pas, lanjut render
-    1 2 3 4      = kamera di pojok: 1 kiri atas, 2 kanan atas, 3 kiri bawah, 4 kanan bawah
+    1 2 3 4      = kamera wajah di video asli ada di pojok: 1 kiri atas, 2 kanan atas, 3 kiri bawah, 4 kanan bawah
     5            = video tanpa facecam
     + / -        = kotak wajah lebih besar / kecil
     w a s d      = geser kotak wajah (atas / kiri / bawah / kanan)
@@ -435,7 +435,9 @@ async function main() {
   if (/^\d+$/.test(n) && +n > 0) g.clips = Math.min(10, +n);
   const wm = await ask(`Watermark kecil di bawah? (Enter = ${g.watermark || 'tanpa watermark'} | - = hapus)\n> `);
   if (wm) g.watermark = wm === '-' ? '' : wm.slice(0, 40);
-  const cam = await ask(`Posisi kamera wajah streamer? 1 kiri atas, 2 kanan atas, 3 kiri bawah, 4 kanan bawah, 5 tanpa facecam (Enter = ${g.corner})\n> `);
+  console.log('\nDi VIDEO ASLI (YouTube), kotak kamera wajah streamer ada di pojok mana?');
+  console.log('(Di hasil akhir, wajah selalu otomatis ditaruh di ATAS dan game di BAWAH.)');
+  const cam = await ask(`1 kiri atas, 2 kanan atas, 3 kiri bawah, 4 kanan bawah, 5 tidak ada kamera wajah (Enter = ${g.corner})\n> `);
   if (/^[1-5]$/.test(cam)) {
     g.corner = +cam;
     g.faceDx = 0;
