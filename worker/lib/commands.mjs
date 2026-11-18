@@ -39,3 +39,51 @@ export function renderArgs({ input, output, duration, filter, preset = 'veryfast
   );
   return args;
 }
+
+// ---------- gaming: split screen (facecam on top, gameplay below) ----------
+// Boxes are normalized to the source frame: x, y = top-left, w = width (0..1);
+// the height follows from the output panel's aspect ratio.
+export function splitHeights(topRatio = 0.4, outH = 1920) {
+  const top = even(outH * Math.min(0.6, Math.max(0.2, topRatio)));
+  return { top, bottom: outH - top };
+}
+
+export function boxPixels(box, aspect, srcW, srcH) {
+  let w = box.w * srcW;
+  let h = w / aspect;
+  if (h > srcH) {
+    h = srcH;
+    w = h * aspect;
+  }
+  w = even(Math.min(w, srcW));
+  h = even(Math.min(h, srcH));
+  const x = Math.round(Math.max(0, Math.min(srcW - w, box.x * srcW)));
+  const y = Math.round(Math.max(0, Math.min(srcH - h, box.y * srcH)));
+  return { w, h, x, y };
+}
+
+export function gameFilter({ srcW, srcH, face, game, topRatio = 0.4, noCam = false, subs = null, fontsDir = 'fonts', outW = 1080, outH = 1920 }) {
+  const subFilter = subs ? `,ass=${subs}:fontsdir=${fontsDir}` : '';
+  if (noCam) {
+    const g = boxPixels(game, outW / splitHeights(0.4, outH).bottom, srcW, srcH);
+    return {
+      complex: true,
+      filter:
+        `[0:v]split[a][b];` +
+        `[a]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},boxblur=24:2,eq=brightness=-0.1[bg];` +
+        `[b]crop=${g.w}:${g.h}:${g.x}:${g.y},scale=${outW}:-2[fg];` +
+        `[bg][fg]overlay=0:(H-h)/2,setsar=1${subFilter}[v]`,
+    };
+  }
+  const { top, bottom } = splitHeights(topRatio, outH);
+  const f = boxPixels(face, outW / top, srcW, srcH);
+  const g = boxPixels(game, outW / bottom, srcW, srcH);
+  return {
+    complex: true,
+    filter:
+      `[0:v]split[a][b];` +
+      `[a]crop=${f.w}:${f.h}:${f.x}:${f.y},scale=${outW}:${top},setsar=1[top];` +
+      `[b]crop=${g.w}:${g.h}:${g.x}:${g.y},scale=${outW}:${bottom},setsar=1[bot];` +
+      `[top][bot]vstack=inputs=2${subFilter}[v]`,
+  };
+}

@@ -13,6 +13,12 @@ function assTime(t) {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
+// ASS alpha: 00 = solid, FF = invisible
+function alphaHex(opacity) {
+  const a = Math.round(255 * (1 - Math.max(0, Math.min(1, opacity))));
+  return a.toString(16).toUpperCase().padStart(2, '0');
+}
+
 function clean(word) {
   return word.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim();
 }
@@ -48,6 +54,9 @@ export function buildAss(allWords, clipStart, clipEnd, opts = {}) {
     marginV = 360,
     maxWords = 3,
     title = '',
+    posY = null, // center the captions on this y (e.g. the split line in gaming layout)
+    watermark = '',
+    wmOpacity = 0.35,
   } = opts;
 
   const raw = allWords
@@ -81,6 +90,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,${fontName},${fontSize},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,50,50,${marginV},1
+Style: WM,${fontName},24,&H${alphaHex(wmOpacity)}FFFFFF,&H00FFFFFF,&H${alphaHex(wmOpacity * 0.6)}000000,&H00000000,-1,0,0,0,100,100,1,0,1,1,0,2,40,40,34,1
 Style: Title,${fontName},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,14,0,8,60,60,150,1
 
 [Events]
@@ -88,6 +98,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
   const lines = [];
+  const pos = posY != null ? `{\\an5\\pos(${W / 2},${Math.round(posY)})}` : '';
+  if (watermark) {
+    lines.push(`Dialogue: 2,${assTime(0)},${assTime(clipEnd - clipStart + 1)},WM,,0,0,0,,${clean(watermark)}`);
+  }
   if (title) {
     const t = clean(title);
     lines.push(`Dialogue: 1,${assTime(0)},${assTime(Math.min(4, clipEnd - clipStart))},Title,,0,0,0,,${t}`);
@@ -106,7 +120,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const text = g
         .map((w, j) => (j === i ? `{\\c${highlight}&\\fscx108\\fscy108}${w.word}{\\r}` : w.word))
         .join(' ');
-      lines.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${text}`);
+      lines.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${pos}${text}`);
     }
   }
 

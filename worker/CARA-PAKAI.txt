@@ -60,3 +60,14 @@ BERHENTI / HAPUS
 CATATAN
 - Klip dari video orang lain bisa kena klaim hak cipta. Utamakan kreator yang
   membuka program clipping, dan selalu cantumkan kredit (sudah ada di CAPTION.txt).
+
+==================================================
+ AUTOCLIP GAMING (klip portrait: wajah atas, game bawah)
+==================================================
+1. Klik dua kali GAMING-CLIP.bat
+2. Tempel link YouTube (boleh beberapa, satu per baris), lalu Enter di baris kosong.
+3. Jawab: nama game, jumlah klip, watermark, posisi kamera wajah streamer.
+4. Gambar pratinjau akan terbuka. Kotak KUNING = wajah, BIRU = game.
+   Enter kalau sudah pas, atau ketik perintah (1-5, + -, w a s d, j l, t g).
+5. Hasil: Videos\AutoClip Gaming\<tanggal>\<channel - judul>\ + CAPTION.txt
+Pengaturan terakhir (posisi kamera, watermark) disimpan di gaming.json.
