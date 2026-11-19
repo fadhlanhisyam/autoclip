@@ -298,6 +298,37 @@ async function confirmLayout(dir, frame, srcW, srcH) {
   saveG();
 }
 
+// ---------- history: which parts of a video were already clipped ----------
+const HISTORY = path.join(HERE, 'riwayat-klip-gaming.json');
+const parseTime = (t) => String(t).trim().split(':').reduce((a, v) => a * 60 + Number(v), 0);
+
+// clipped parts of video `id`; first time, rebuild it from old CAPTION.txt files
+function clippedParts(id) {
+  const all = readJson(HISTORY, {});
+  if (all[id]) return all[id];
+  const parts = [];
+  try {
+    for (const day of fs.readdirSync(OUT_ROOT)) {
+      const dayDir = path.join(OUT_ROOT, day);
+      if (!fs.statSync(dayDir).isDirectory()) continue;
+      for (const sub of fs.readdirSync(dayDir)) {
+        const cap = path.join(dayDir, sub, 'CAPTION.txt');
+        if (!fs.existsSync(cap)) continue;
+        const txt = fs.readFileSync(cap, 'utf8');
+        if (!txt.includes(id)) continue;
+        for (const m of txt.matchAll(/Bagian video asli:\s*([\d:]+)\s*[–-]\s*([\d:]+)/g)) parts.push({ start: parseTime(m[1]), end: parseTime(m[2]) });
+      }
+    }
+  } catch {}
+  return parts;
+}
+function saveClipped(id, parts) {
+  const all = readJson(HISTORY, {});
+  all[id] = parts;
+  fs.writeFileSync(HISTORY, JSON.stringify(all));
+}
+const overlaps = (c, parts, pad = 0) => parts.some((p) => c.start < p.end + pad && c.end > p.start - pad);
+
 // ---------- one video ----------
 async function processVideo(url, idx, total) {
   const id = (/(?:v=|youtu\.be\/|shorts\/|live\/)([\w-]{11})/.exec(url) || [])[1];
@@ -320,8 +351,12 @@ async function processVideo(url, idx, total) {
   const { duration } = await probe(path.join(dir, 'speech.mp3'));
 
   log('  Mencari momen streamer teriak / heboh dari suaranya…');
-  const peaks = findPeaks(await loudnessDb('speech.mp3', dir));
-  log(`  ${peaks.length} momen suara streamer keras ditemukan.`);
+  const done = clippedParts(id);
+  const allPeaks = findPeaks(await loudnessDb('speech.mp3', dir));
+  // skip moments that were already clipped from this video before
+  const peaks = allPeaks.filter((p) => !overlaps({ start: p.t, end: p.t }, done, 10));
+  log(`  ${allPeaks.length} momen suara streamer keras ditemukan.`);
+  if (done.length) log(`  Video ini sudah pernah di-clip ${done.length} kali → bagian itu dilewati, ${peaks.length} momen baru tersisa.`);
 
   // transcribe only around the loud moments (saves the free quota), cached per video
   // more clips wanted -> transcribe around more loud moments
@@ -378,8 +413,10 @@ async function processVideo(url, idx, total) {
       notes: [g.notes, ranges ? 'Speech was only transcribed around the loud moments; pick clips around those moments.' : ''].filter(Boolean).join(' '),
     }),
   });
-  const clips = fitClips(h.clips || [], segments, { minDur: g.minDur, maxDur: g.maxDur, duration }).slice(0, g.clips);
-  if (!clips.length) throw new Error('AI tidak menemukan momen yang cocok');
+  const clips = fitClips(h.clips || [], segments, { minDur: g.minDur, maxDur: g.maxDur, duration })
+    .filter((c) => !overlaps(c, done, 3))
+    .slice(0, g.clips);
+  if (!clips.length) throw new Error(done.length ? 'tidak ada momen baru yang belum pernah di-clip dari video ini' : 'AI tidak menemukan momen yang cocok');
   log(`  ${clips.length} momen dipilih (${h.provider || 'AI'}).`);
 
   const outDir = path.join(OUT_ROOT, today, safeName(`${channel ? channel + ' - ' : ''}${title}`));
@@ -387,9 +424,10 @@ async function processVideo(url, idx, total) {
   const fmt = 'bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b';
   const made = [];
   let layoutOk = false;
+  const base = done.length;
   for (let i = 0; i < clips.length; i++) {
     const c = clips[i];
-    const n = String(i + 1).padStart(2, '0');
+    const n = String(base + i + 1).padStart(2, '0'); // continue numbering after earlier clips
     log(`  Klip ${n}: ${fmtTime(c.start)}–${fmtTime(c.end)} "${c.title}"`);
     try {
       let sec;
@@ -423,6 +461,8 @@ async function processVideo(url, idx, total) {
       await ffmpeg(renderArgs({ input: sec, output: outName, duration: len, filter }), dir);
       fs.renameSync(path.join(dir, outName), path.join(outDir, outName));
       made.push({ ...c, file: outName, len });
+      done.push({ start: c.start, end: c.end });
+      saveClipped(id, done);
       log(`    ✓ ${outName}`);
     } catch (e) {
       log(`    ✗ klip ${n} gagal: ${e.message}`);
@@ -432,13 +472,12 @@ async function processVideo(url, idx, total) {
   const credit = `🎮 Full: ${title}${channel ? ' — ' + channel : ''} (YouTube)`;
   const tag = channel ? `#${channel.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()}` : '';
   const gameTag = g.game ? `#${g.game.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()}` : '';
-  fs.writeFileSync(
-    path.join(outDir, 'CAPTION.txt'),
+  const capFile = path.join(outDir, 'CAPTION.txt');
+  const hadCap = fs.existsSync(capFile);
+  fs.appendFileSync(
+    capFile,
     [
-      `SUMBER: ${title}`,
-      `CHANNEL: ${channel}`,
-      `LINK: ${url}`,
-      '',
+      ...(hadCap ? [''] : [`SUMBER: ${title}`, `CHANNEL: ${channel}`, `LINK: ${url}`, '']),
       ...made.flatMap((c) => [
         `==================== ${c.file} (${Math.round(c.len)} detik, skor ${c.score}) ====================`,
         `Judul: ${c.title}`,
