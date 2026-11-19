@@ -291,7 +291,7 @@ export default function GameClipApp() {
         const { loudPeaks, speechRanges, pieces, annotatePeaks } = await import('@/lib/loudness');
         const peaks = await loudPeaks(all, setProgress);
         // transcribe only around the loud moments: saves the free Whisper quota on long streams
-        const ranges = speechRanges(peaks, meta.duration);
+        const ranges = speechRanges(peaks, meta.duration, { top: Math.max(15, Math.ceil(count * 1.5)) });
         const chunks = ranges ? await cutAudio(pieces(ranges, CHUNK_SEC)) : all;
         await dropAudio();
         partialRef.current = !!ranges;
@@ -625,7 +625,7 @@ export default function GameClipApp() {
           </label>
           <label>
             Jumlah klip
-            <input type="number" min={1} max={15} value={count} onChange={(e) => setCount(+e.target.value)} disabled={busy} />
+            <input type="number" min={1} max={50} value={count} onChange={(e) => setCount(+e.target.value)} disabled={busy} />
           </label>
           <label>
             Durasi min (detik)

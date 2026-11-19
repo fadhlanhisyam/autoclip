@@ -324,7 +324,8 @@ async function processVideo(url, idx, total) {
   log(`  ${peaks.length} momen suara streamer keras ditemukan.`);
 
   // transcribe only around the loud moments (saves the free quota), cached per video
-  const ranges = speechRanges(peaks, duration);
+  // more clips wanted -> transcribe around more loud moments
+  const ranges = speechRanges(peaks, duration, { top: Math.max(15, Math.ceil(g.clips * 1.5)) });
   const parts = pieces(ranges || [[0, duration]], 480);
   const audioSec = parts.reduce((a, [s0, e0]) => a + e0 - s0, 0);
   log(ranges
@@ -477,7 +478,7 @@ async function main() {
       g.faceDx = 0;
       g.faceDy = 0;
     }
-    if (/^\d+$/.test(arg('--clips') || '')) g.clips = Math.min(10, Math.max(1, +arg('--clips')));
+    if (/^\d+$/.test(arg('--clips') || '')) g.clips = Math.min(50, Math.max(1, +arg('--clips')));
     if (arg('--game')) g.game = arg('--game') === '-' ? '' : arg('--game');
   }
   if (!BOT) console.log('Tempel link YouTube (boleh beberapa, satu per baris). Tekan Enter di baris kosong kalau sudah.');
@@ -498,7 +499,7 @@ async function askSettings() {
   const game = await ask(`Nama game? (Enter = ${g.game || 'kosong'})\n> `);
   if (game) g.game = game === '-' ? '' : game;
   const n = await ask(`Berapa klip per video? (Enter = ${g.clips})\n> `);
-  if (/^\d+$/.test(n) && +n > 0) g.clips = Math.min(10, +n);
+  if (/^\d+$/.test(n) && +n > 0) g.clips = Math.min(50, +n);
   const wm = await ask(`Watermark kecil di bawah? (Enter = ${g.watermark || 'tanpa watermark'} | - = hapus)\n> `);
   if (wm) g.watermark = wm === '-' ? '' : wm.slice(0, 40);
   console.log('\nDi VIDEO ASLI (YouTube), kotak kamera wajah streamer ada di pojok mana?');

@@ -126,7 +126,7 @@ async function askClaude(prompt) {
     },
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -143,12 +143,12 @@ export async function POST(req) {
   const body = await req.json();
   const segments = Array.isArray(body.segments) ? body.segments : [];
   const gaming = body.mode === 'gaming';
-  const peaks = gaming && Array.isArray(body.peaks) ? body.peaks.slice(0, 60).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.db)).map((p) => ({ t: p.t, db: p.db, speech: p.speech === undefined ? undefined : String(p.speech).slice(0, 120) })) : [];
+  const peaks = gaming && Array.isArray(body.peaks) ? body.peaks.slice(0, 150).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.db)).map((p) => ({ t: p.t, db: p.db, speech: p.speech === undefined ? undefined : String(p.speech).slice(0, 120) })) : [];
   if (!segments.length && !peaks.length) return Response.json({ error: 'Transkrip kosong' }, { status: 400 });
 
   const common = {
     segments,
-    count: Math.min(15, Math.max(1, Number(body.count) || 6)),
+    count: Math.min(gaming ? 50 : 15, Math.max(1, Number(body.count) || 6)),
     minDur: Number(body.minDur) || 20,
     maxDur: Number(body.maxDur) || 60,
     language: body.language || 'id',
