@@ -25,14 +25,15 @@ Write-Host ' (Izin yang diminta hanya untuk file yang dibuat AutoClip sendiri.)'
 Write-Host '=================================================================='
 Write-Host ''
 cmd /c "`"$rc`" config delete gdrive >nul 2>&1"
-cmd /c "`"$rc`" config create gdrive drive scope=drive.file 2>&1"
+# stdout would print the login token: keep it off the screen
+cmd /c "`"$rc`" config create gdrive drive scope=drive.file >nul"
 if ($LASTEXITCODE -ne 0) { throw 'Login Google gagal / dibatalkan. Jalankan SETUP-GDRIVE.bat lagi.' }
 
-cmd /c "`"$rc`" mkdir `"gdrive:AutoClip Gaming`" 2>&1"
-cmd /c "`"$rc`" mkdir `"gdrive:AutoClip Podcast`" 2>&1"
+cmd /c "`"$rc`" mkdir `"gdrive:AutoClip Gaming`" -q"
+cmd /c "`"$rc`" mkdir `"gdrive:AutoClip Podcast`" -q"
 Write-Host ''
 Write-Host 'BERHASIL. Folder di Google Drive Anda:'
-cmd /c "`"$rc`" lsd gdrive: 2>&1"
+cmd /c "`"$rc`" lsd gdrive: -q"
 Write-Host ''
 Write-Host 'Mulai sekarang klip otomatis terupload ke "AutoClip Gaming" (GAMING-CLIP.bat)'
 Write-Host 'dan "AutoClip Podcast" (JALANKAN-SEKARANG.bat).'

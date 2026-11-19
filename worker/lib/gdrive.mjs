@@ -24,6 +24,6 @@ export async function driveReady(rclone) {
 // copy a local folder to gdrive:<remotePath>; returns { ok, error }
 export async function uploadFolder(rclone, localDir, remotePath) {
   const r = await run(rclone, ['copy', localDir, `gdrive:${remotePath}`, '--transfers', '2', '--retries', '3', '--low-level-retries', '10']);
-  const lines = r.err.trim().split(/\r?\n/).filter((l) => /ERROR|Failed/i.test(l));
+  const lines = r.err.trim().split(/\r?\n/).filter((l) => /ERROR|Failed/i.test(l) && !/client_id/.test(l));
   return r.code === 0 ? { ok: true } : { ok: false, error: (lines.pop() || r.err.trim().split(/\r?\n/).pop() || 'gagal').slice(0, 300) };
 }
