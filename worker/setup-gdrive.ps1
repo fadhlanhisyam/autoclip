@@ -15,21 +15,24 @@ if (-not (Test-Path $rc)) {
   Remove-Item $zip, $tmp -Recurse -Force
 }
 
+# rclone writes normal notices to stderr; don't treat them as errors
+$ErrorActionPreference = 'Continue'
+
 Write-Host ''
 Write-Host '=================================================================='
 Write-Host ' Browser akan terbuka. Login ke akun Google Anda, lalu klik "Allow".'
 Write-Host ' (Izin yang diminta hanya untuk file yang dibuat AutoClip sendiri.)'
 Write-Host '=================================================================='
 Write-Host ''
-& $rc config delete gdrive 2>$null | Out-Null
-& $rc config create gdrive drive scope=drive.file
+cmd /c "`"$rc`" config delete gdrive >nul 2>&1"
+cmd /c "`"$rc`" config create gdrive drive scope=drive.file 2>&1"
 if ($LASTEXITCODE -ne 0) { throw 'Login Google gagal / dibatalkan. Jalankan SETUP-GDRIVE.bat lagi.' }
 
-& $rc mkdir 'gdrive:AutoClip Gaming'
-& $rc mkdir 'gdrive:AutoClip Podcast'
+cmd /c "`"$rc`" mkdir `"gdrive:AutoClip Gaming`" 2>&1"
+cmd /c "`"$rc`" mkdir `"gdrive:AutoClip Podcast`" 2>&1"
 Write-Host ''
 Write-Host 'BERHASIL. Folder di Google Drive Anda:'
-& $rc lsd gdrive:
+cmd /c "`"$rc`" lsd gdrive: 2>&1"
 Write-Host ''
 Write-Host 'Mulai sekarang klip otomatis terupload ke "AutoClip Gaming" (GAMING-CLIP.bat)'
 Write-Host 'dan "AutoClip Podcast" (JALANKAN-SEKARANG.bat).'
