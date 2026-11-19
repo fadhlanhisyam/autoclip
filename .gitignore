@@ -4,3 +4,6 @@ worker/logs/
 worker/processed.txt
 worker/status-terakhir.txt
 worker/cache/
+worker/telegram.json
+worker/bot.pid
+worker/BOT-HP-tersembunyi.vbs

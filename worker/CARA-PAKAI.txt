@@ -79,3 +79,20 @@ Pengaturan terakhir (posisi kamera, watermark) disimpan di gaming.json.
 2. Browser terbuka: login akun Google, klik "Allow".
 3. Folder "AutoClip Gaming" dan "AutoClip Podcast" dibuat di Google Drive Anda.
 Setelah itu setiap klip yang selesai otomatis terupload ke sana (file tetap ada di PC juga).
+
+==================================================
+ AUTOCLIP DARI HP (BOT TELEGRAM)
+==================================================
+Sekali saja:
+1. Klik dua kali SETUP-BOT-HP.bat dan ikuti petunjuknya
+   (buat bot di @BotFather, tempel token, kirim /start KODE dari HP).
+2. Pilih "y" agar bot jalan otomatis (tanpa jendela) setiap PC menyala.
+
+Pemakaian (dari HP, di mana saja):
+- Kirim link YouTube ke bot -> pilih Gaming / Produk / Podcast.
+- Gaming: pilih pojok kamera wajah, lalu cek foto pratinjau & tekan tombol.
+- /niche skincare  -> cari podcast yang membahas produk & klipkan
+- /status  /batal  /help
+Klip dikirim ke chat (dan Google Drive kalau SETUP-GDRIVE sudah dijalankan).
+PC harus tetap menyala & online (bot mencegah PC tidur selama berjalan).
+Matikan bot: MATIKAN-BOT.bat

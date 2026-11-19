@@ -49,6 +49,20 @@ const DEFAULTS = {
 };
 
 const cfg = { ...DEFAULTS, ...readJson(path.join(HERE, 'config.json'), {}) };
+
+// command-line options (used by the Telegram bot, bot.mjs):
+//   --link URL (repeatable)  process exactly these videos
+//   --produk [niche]         affiliate/product mode for --link videos
+//   --niche NAME             find 1 podcast for this niche
+//   --result FILE            write a JSON summary of the clips made
+const argv = process.argv.slice(2);
+const argAll = (name) => argv.flatMap((a, i) => (a === name && argv[i + 1] && !argv[i + 1].startsWith('--') ? [argv[i + 1]] : []));
+const arg = (name) => argAll(name)[0];
+const LINKS = argAll('--link');
+const NICHE_ARG = arg('--niche');
+const PRODUK = argv.includes('--produk');
+const RESULT_FILE = arg('--result');
+if (NICHE_ARG) cfg.videosPerDay = 1;
 const TOOLS = cfg.toolsDir || path.join(ROOT, 'tools');
 const YTDLP = cfg.ytdlp || path.join(TOOLS, exe('yt-dlp'));
 const FFMPEG = cfg.ffmpeg || path.join(TOOLS, exe('ffmpeg'));
@@ -65,6 +79,7 @@ const STATUS = path.join(HERE, 'status-terakhir.txt');
 
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
 const summary = [];
+const resultItems = [];
 
 // manual runs (JALANKAN-SEKARANG.bat) also keep a log file, so problems can be checked afterwards
 const LOGFILE = process.argv.includes('--tanya') ? path.join(HERE, 'logs', `manual-${today}.log`) : null;
@@ -228,7 +243,7 @@ async function uploadDate(url) {
 
 // niche.txt: "skincare" or "skincare | podcast skincare kulit kering"
 function readNiches() {
-  return readLines(NICHES).map((l) => {
+  return (NICHE_ARG ? [NICHE_ARG] : readLines(NICHES)).map((l) => {
     const [name, query] = l.split('|').map((s) => s.trim());
     return { name, query: query || `podcast ${name}`, queries: query ? [query] : [`review ${name}`, `review produk ${name} podcast`, `podcast ${name}`] };
   }).filter((n) => n.name);
@@ -283,6 +298,15 @@ const nichePool = [];
 
 async function pickVideos(processed) {
   const picked = [];
+  if (LINKS.length) {
+    // explicit links (from the bot): always process, even if clipped before
+    const niche = PRODUK ? arg('--produk') || readNiches()[0]?.name || 'produk' : '';
+    for (const url of LINKS) {
+      const id = (/(?:v=|youtu\.be\/|shorts\/|live\/)([\w-]{11})/.exec(url) || [])[1];
+      if (id && !picked.some((p) => p.id === id)) picked.push({ id, url: `https://www.youtube.com/watch?v=${id}`, title: '', channel: '', fromQueue: true, niche });
+    }
+    return picked;
+  }
   // manual queue has priority
   for (const url of readLines(QUEUE)) {
     const id = (/(?:v=|youtu\.be\/|shorts\/|live\/)([\w-]{11})/.exec(url) || [])[1];
@@ -614,6 +638,7 @@ async function main() {
       done.push(v);
       try {
         const { outDir, made } = await processVideo(v, i);
+        resultItems.push({ title: v.title, channel: v.channel, url: v.url, outDir, made: made.map((c) => ({ ...c, file: path.join(outDir, c.file) })) });
         summary.push(`✓ ${made.length} klip dari "${v.title}" (${v.channel})${v.niche ? ' [niche: ' + v.niche + ']' : ''} → ${outDir}`);
         // optional: copy to Google Drive (SETUP-GDRIVE.bat)
         const drive = made.length ? await driveReady(RCLONE) : null;
@@ -639,6 +664,7 @@ async function main() {
           }
         }
         summary.push(`✗ "${v.title || v.url}": ${e.message}`);
+        resultItems.push({ title: v.title, url: v.url, error: e.message, made: [] });
         v = null;
         continue;
       }
@@ -667,4 +693,9 @@ main()
       if (fs.existsSync(dayDir)) fs.appendFileSync(path.join(dayDir, 'RINGKASAN.txt'), text + '\n');
     } catch {}
     log('\n' + text);
+    if (RESULT_FILE) {
+      try {
+        fs.writeFileSync(RESULT_FILE, JSON.stringify({ items: resultItems, summary }, null, 1));
+      } catch {}
+    }
   });

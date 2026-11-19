@@ -46,6 +46,14 @@ const g = {
   game: '',
   ...readJson(GAMING_CFG, {}),
 };
+// command-line options (used by the Telegram bot, bot.mjs):
+//   --bot  --link URL (repeatable)  --corner 1-5  --clips N  --game NAME  --result FILE
+const argv = process.argv.slice(2);
+const argAll = (name) => argv.flatMap((a, i) => (a === name && argv[i + 1] && !argv[i + 1].startsWith('--') ? [argv[i + 1]] : []));
+const arg = (name) => argAll(name)[0];
+const BOT = argv.includes('--bot');
+const RESULT_FILE = arg('--result');
+
 const saveG = () => fs.writeFileSync(GAMING_CFG, JSON.stringify(g, null, 2));
 
 const TOOLS = cfg.toolsDir || path.join(ROOT, 'tools');
@@ -251,8 +259,11 @@ async function makePreview(dir, frame, srcW, srcH) {
 async function confirmLayout(dir, frame, srcW, srcH) {
   for (;;) {
     const img = await makePreview(dir, frame, srcW, srcH);
-    if (process.platform === 'win32') spawn('explorer', [img], { detached: true, stdio: 'ignore' }).unref();
-    console.log(`
+    if (BOT) {
+      // the bot sends the picture to the phone and writes the answer to our stdin
+      console.log(`@@PREVIEW ${img}`);
+    } else if (process.platform === 'win32') spawn('explorer', [img], { detached: true, stdio: 'ignore' }).unref();
+    if (!BOT) console.log(`
   Gambar pratinjau dibuka (kiri: video asli, kotak KUNING = wajah, BIRU = game; kanan: hasil 9:16).
   Sudah pas?
     Enter        = pas, lanjut render
@@ -263,7 +274,7 @@ async function confirmLayout(dir, frame, srcW, srcH) {
     j / l        = geser area game ke kiri / kanan
     t / g        = bagian wajah lebih tinggi / lebih pendek
   (boleh digabung, mis. "++dd")`);
-    const a = (await ask('> ')).toLowerCase();
+    const a = (await ask(BOT ? '' : '> ')).toLowerCase();
     if (!a) break;
     for (const ch of a) {
       if (/[1-5]/.test(ch)) {
@@ -459,9 +470,18 @@ async function main() {
   if (!cfg.password) throw new Error('Password AutoClip belum diisi. Jalankan SETUP-WORKER.bat dulu.');
   await api('/api/auth', { method: 'POST' }, 2);
 
-  const links = [];
-  console.log('Tempel link YouTube (boleh beberapa, satu per baris). Tekan Enter di baris kosong kalau sudah.');
-  for (;;) {
+  const links = [...argAll('--link')];
+  if (BOT) {
+    if (/^[1-5]$/.test(arg('--corner') || '')) {
+      g.corner = +arg('--corner');
+      g.faceDx = 0;
+      g.faceDy = 0;
+    }
+    if (/^\d+$/.test(arg('--clips') || '')) g.clips = Math.min(10, Math.max(1, +arg('--clips')));
+    if (arg('--game')) g.game = arg('--game') === '-' ? '' : arg('--game');
+  }
+  if (!BOT) console.log('Tempel link YouTube (boleh beberapa, satu per baris). Tekan Enter di baris kosong kalau sudah.');
+  for (; !BOT; ) {
     const a = await ask(links.length ? '> ' : 'Link: ');
     if (!a) {
       if (links.length) break;
@@ -469,6 +489,12 @@ async function main() {
     }
     for (const s of a.split(/\s+/)) if (/youtu\.?be/.test(s)) links.push(s);
   }
+  if (!BOT) await askSettings();
+  saveG();
+  await runAll(links);
+}
+
+async function askSettings() {
   const game = await ask(`Nama game? (Enter = ${g.game || 'kosong'})\n> `);
   if (game) g.game = game === '-' ? '' : game;
   const n = await ask(`Berapa klip per video? (Enter = ${g.clips})\n> `);
@@ -483,8 +509,9 @@ async function main() {
     g.faceDx = 0;
     g.faceDy = 0;
   }
-  saveG();
+}
 
+async function runAll(links) {
   const drive = await driveReady(RCLONE);
   log(drive ? 'Google Drive terhubung: hasil akan diupload otomatis ke folder "AutoClip Gaming".' : 'Info: upload otomatis ke Google Drive belum aktif (jalankan SETUP-GDRIVE.bat sekali kalau mau).');
   const results = [];
@@ -499,13 +526,20 @@ async function main() {
         log(up.ok ? `  ☁ Terupload ke Google Drive: ${remote}` : `  ! Upload Google Drive gagal: ${up.error} (file tetap ada di PC)`);
       }
     } catch (e) {
+      results.push({ title: links[i], made: [], error: e.message, outDir: '' });
       if (e.fatal) throw e;
       log(`  ✗ video dilewati: ${e.message}`);
     }
   }
   const total = results.reduce((s, r) => s + r.made.length, 0);
   log(`\nSelesai: ${total} klip dibuat.`);
-  if (results[0]) {
+  if (RESULT_FILE) {
+    fs.writeFileSync(
+      RESULT_FILE,
+      JSON.stringify({ items: results.map((r) => ({ ...r, made: r.made.map((c) => ({ ...c, file: path.join(r.outDir, c.file) })) })) }, null, 1),
+    );
+  }
+  if (results.some((r) => r.made.length) && !BOT) {
     log(`Hasil ada di: ${path.join(OUT_ROOT, today)}`);
     if (process.platform === 'win32' && total) spawn('explorer', [path.join(OUT_ROOT, today)], { detached: true, stdio: 'ignore' }).unref();
   }
